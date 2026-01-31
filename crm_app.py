@@ -360,17 +360,18 @@ if choice == "👥 จัดการลูกค้า":
     with st.expander("📝 ฟอร์มข้อมูลลูกค้า", expanded=True):
         c1, c2 = st.columns(2)
         with c1:
-            name = st.text_input("ชื่อ-นามสกุลจริง *", value=curr_data.get('full_name', ""))
-            phone = st.text_input("เบอร์โทร", value=curr_data.get('phone', "") or "")
-            line = st.text_input("LINE ID", value=curr_data.get('line_id', "") or "")
-            addr_detail = st.text_area("รายละเอียดที่อยู่", value=curr_data.get('address_detail', "") or "")
+            form_key_suffix = str(edit_id) if edit_mode else "new"
+            name = st.text_input("ชื่อ-นามสกุลจริง *", value=curr_data.get('full_name', ""), key=f"c_name_{form_key_suffix}")
+            phone = st.text_input("เบอร์โทร", value=curr_data.get('phone', "") or "", key=f"c_phone_{form_key_suffix}")
+            line = st.text_input("LINE ID", value=curr_data.get('line_id', "") or "", key=f"c_line_{form_key_suffix}")
+            addr_detail = st.text_area("รายละเอียดที่อยู่", value=curr_data.get('address_detail', "") or "", key=f"c_addr_{form_key_suffix}")
             
             prov_list = sorted(list(LOCATION_DATA.keys()))
             p_idx = 0
             if edit_mode and curr_data.get('province') in prov_list:
                 p_idx = prov_list.index(curr_data.get('province')) + 1
             
-            sel_prov = st.selectbox("เลือกจังหวัด", ["-- โปรดเลือกจังหวัด --"] + prov_list, index=p_idx)
+            sel_prov = st.selectbox("เลือกจังหวัด", ["-- โปรดเลือกจังหวัด --"] + prov_list, index=p_idx, key=f"c_prov_{form_key_suffix}")
             
             sel_dist = ""
             zip_code = ""
@@ -380,16 +381,16 @@ if choice == "👥 จัดการลูกค้า":
                 if edit_mode and curr_data.get('district') in dist_list:
                     d_idx = dist_list.index(curr_data.get('district'))
                 
-                sel_dist = st.selectbox("เลือกอำเภอ/เขต", dist_list, index=d_idx)
+                sel_dist = st.selectbox("เลือกอำเภอ/เขต", dist_list, index=d_idx, key=f"c_dist_{form_key_suffix}")
                 zip_code = LOCATION_DATA[sel_prov][sel_dist]
                 st.info(f"📍 รหัสไปรษณีย์: {zip_code}")
             else:
-                st.selectbox("เลือกอำเภอ/เขต", ["-- กรุณาเลือกจังหวัดก่อน --"], disabled=True)
+                st.selectbox("เลือกอำเภอ/เขต", ["-- กรุณาเลือกจังหวัดก่อน --"], disabled=True, key=f"c_dist_dis_{form_key_suffix}")
 
         with c2:
-            nick = st.text_input("ชื่อเล่น", value=curr_data.get('nickname', "") or "")
-            fb = st.text_input("Facebook", value=curr_data.get('facebook', "") or "")
-            ig = st.text_input("Instagram", value=curr_data.get('instagram', "") or "")
+            nick = st.text_input("ชื่อเล่น", value=curr_data.get('nickname', "") or "", key=f"c_nick_{form_key_suffix}")
+            fb = st.text_input("Facebook", value=curr_data.get('facebook', "") or "", key=f"c_fb_{form_key_suffix}")
+            ig = st.text_input("Instagram", value=curr_data.get('instagram', "") or "", key=f"c_ig_{form_key_suffix}")
             
             df_emp = run_query("SELECT emp_id, emp_name, emp_nickname FROM employees")
             if not df_emp.empty:
@@ -406,7 +407,29 @@ if choice == "👥 จัดการลูกค้า":
                     if not match.empty:
                         e_idx = e_names.index(match['display_name'].values[0]) + 1
             
-            emp_l = st.selectbox("พนักงานผู้ดูแล", ["-- ไม่ระบุ --"] + e_names, index=e_idx)
+            emp_l = st.selectbox("พนักงานผู้ดูแล", ["-- ไม่ระบุ --"] + e_names, index=e_idx, key=f"c_emp_{form_key_suffix}")
+            
+            st.divider()
+            st.write("📋 **ข้อมูลส่วนตัวเพิ่มเติม**")
+            g_opts = ["-- ระบุเพศ --", "ชาย", "หญิง", "อื่นๆ"]
+            g_idx = 0
+            if edit_mode and curr_data.get('gender') in g_opts:
+                g_idx = g_opts.index(curr_data.get('gender'))
+            gender = st.selectbox("เพศ", g_opts, index=g_idx, key=f"c_gender_{form_key_suffix}")
+            
+            m_opts = ["-- สถานะภาพ --", "โสด", "แต่งงานแล้ว", "หย่าร้าง / หม้าย"]
+            m_idx = 0
+            if edit_mode and curr_data.get('marital_status') in m_opts:
+                m_idx = m_opts.index(curr_data.get('marital_status'))
+            marital = st.selectbox("สถานะภาพ", m_opts, index=m_idx, key=f"c_marital_{form_key_suffix}")
+            
+            c_opts = ["-- ข้อมูลบุตร --", "ยังไม่มีบุตร", "มีบุตรแล้ว"]
+            c_idx = 0
+            if edit_mode and curr_data.get('has_children') in c_opts:
+                c_idx = c_opts.index(curr_data.get('has_children'))
+            children = st.selectbox("การมีบุตร", c_opts, index=c_idx, key=f"c_children_{form_key_suffix}")
+
+            note = st.text_area("หมายเหตุเพิ่มเติม", value=curr_data.get('cust_note', "") or "", key=f"c_note_{form_key_suffix}")
             
             st.divider()
             st.write("📋 **ข้อมูลส่วนตัวเพิ่มเติม**")
@@ -509,8 +532,9 @@ elif choice == "👔 จัดการพนักงาน":
 
     with st.expander("📝 ฟอร์มข้อมูลพนักงาน", expanded=True):
         c1, c2, c3 = st.columns(3)
-        en = c1.text_input("ชื่อจริง", value=curr_data.get('emp_name', "") or "")
-        eni = c2.text_input("ชื่อเล่น", value=curr_data.get('emp_nickname', "") or "")
+        form_key_suffix = str(edit_id) if edit_mode else "new"
+        en = c1.text_input("ชื่อจริง", value=curr_data.get('emp_name', "") or "", key=f"e_name_{form_key_suffix}")
+        eni = c2.text_input("ชื่อเล่น", value=curr_data.get('emp_nickname', "") or "", key=f"e_nick_{form_key_suffix}")
         
         df_pos = run_query("SELECT pos_name FROM job_positions")
         pos_list = df_pos['pos_name'].tolist() if not df_pos.empty else ["-"]
@@ -518,7 +542,7 @@ elif choice == "👔 จัดการพนักงาน":
         if edit_mode and curr_data.get('position') in pos_list:
             p_idx = pos_list.index(curr_data.get('position'))
         
-        ep = c3.selectbox("ตำแหน่ง", pos_list, index=p_idx)
+        ep = c3.selectbox("ตำแหน่ง", pos_list, index=p_idx, key=f"e_pos_{form_key_suffix}")
         
         btn_label = "💾 บันทึกการแก้ไข" if edit_mode else "💾 บันทึกพนักงานใหม่"
         bc1, bc2 = st.columns([1, 1])
@@ -567,7 +591,8 @@ elif choice == "📦 จัดการสินค้า":
 
     with st.expander("📝 ฟอร์มข้อมูลสินค้า", expanded=True):
         c1, c2, c3 = st.columns(3)
-        pn = c1.text_input("ชื่อสินค้า", value=curr_data.get('product_name', "") or "")
+        form_key_suffix = str(edit_id) if edit_mode else "new"
+        pn = c1.text_input("ชื่อสินค้า", value=curr_data.get('product_name', "") or "", key=f"p_name_{form_key_suffix}")
         
         df_cat = run_query("SELECT * FROM categories")
         cat_list = df_cat['cat_name'].tolist() if not df_cat.empty else ["-"]
@@ -575,8 +600,8 @@ elif choice == "📦 จัดการสินค้า":
         if edit_mode and curr_data.get('cat_name') in cat_list:
             cat_idx = cat_list.index(curr_data.get('cat_name'))
             
-        pc = c2.selectbox("หมวดหมู่", cat_list, index=cat_idx)
-        pr = c3.number_input("ราคา", min_value=0.0, value=float(curr_data.get('price', 0.0) or 0.0))
+        pc = c2.selectbox("หมวดหมู่", cat_list, index=cat_idx, key=f"p_cat_{form_key_suffix}")
+        pr = c3.number_input("ราคา", min_value=0.0, value=float(curr_data.get('price', 0.0) or 0.0), key=f"p_price_{form_key_suffix}")
         
         btn_label = "💾 บันทึกการแก้ไข" if edit_mode else "💾 บันทึกสินค้าใหม่"
         bc1, bc2 = st.columns([1, 1])
