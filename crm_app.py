@@ -222,11 +222,16 @@ elif choice == "💰 บันทึกการขาย":
             
             # 4. Checkout
             cc1, cc2, cc3 = st.columns(3)
-            discount = cc1.number_input("💸 ส่วนลด (บาท)", min_value=0.0, value=0.0)
+            discount_pct = cc1.number_input("📉 ส่วนลด (%)", min_value=0.0, max_value=100.0, value=0.0)
             pay_method = cc2.selectbox("💳 วิธีชำระเงิน", ["โอนเงิน", "เงินสด"])
             channel = cc3.radio("📡 ช่องทาง", ["ออนไลน์", "ออนไซต์"], horizontal=True)
             
-            final_total = subtotal - discount
+            discount_amt = (subtotal * discount_pct) / 100
+            final_total = subtotal - discount_amt
+            
+            if discount_pct > 0:
+                st.markdown(f"💰 ส่วนลดที่ได้รับ ({discount_pct}%): **-{discount_amt:,.2f}** บาท")
+            
             st.markdown(f"### ยอดรวมสุทธิ: :red[{final_total:,.2f}] บาท")
             
             if st.button("🏁 ยืนยันการสั่งซื้อและออกบิล", use_container_width=True, type="primary"):
@@ -248,7 +253,7 @@ elif choice == "💰 บันทึกการขาย":
                     run_query("""
                         INSERT INTO bills (bill_id, customer_id, seller_id, total_amount, discount, final_amount, payment_method)
                         VALUES (:bid, :cid, :sid, :total, :disc, :final, :pay)
-                    """, {"bid": new_bill_id, "cid": c_id, "sid": e_id, "total": subtotal, "disc": discount, "final": final_total, "pay": pay_method})
+                    """, {"bid": new_bill_id, "cid": c_id, "sid": e_id, "total": subtotal, "disc": discount_amt, "final": final_total, "pay": pay_method})
                     
                     # Save Bill items
                     for item in st.session_state.cart:
@@ -289,7 +294,7 @@ elif choice == "💰 บันทึกการขาย":
                         <hr>
                         <table style="width: 100%; font-size: 14px;">
                             <tr><td>Subtotal:</td><td style='text-align: right;'>{subtotal:,.2f}</td></tr>
-                            <tr><td>Discount:</td><td style='text-align: right;'>-{discount:,.2f}</td></tr>
+                            <tr><td>Discount ({discount_pct}%):</td><td style='text-align: right;'>-{discount_amt:,.2f}</td></tr>
                             <tr style='font-weight: bold;'><td>TOTAL:</td><td style='text-align: right;'>{final_total:,.2f}</td></tr>
                         </table>
                         <p style="font-size: 14px;"><b>Method:</b> {pay_method}</p>
