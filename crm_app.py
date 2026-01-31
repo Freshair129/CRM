@@ -255,12 +255,12 @@ elif choice == "💵 P&L Dashboard":
     
     # ดึงยอดขายและส่วนลดจากตาราง bills (ข้อมูลจริงจากระบบใหม่)
     df_pl = run_query("""
-        SELECT bill_id, total_amount, discount, final_amount, bill_date
+        SELECT bill_id, total_amount, discount, final_amount, sale_date
         FROM bills
     """)
     
     if not df_pl.empty:
-        df_pl['bill_date'] = pd.to_datetime(df_pl['bill_date']).dt.date
+        df_pl['sale_date'] = pd.to_datetime(df_pl['sale_date']).dt.date
         
         # ตัวเลือกช่วงเวลา
         st.subheader("📊 วิเคราะห์กระแสรายได้")
@@ -275,7 +275,7 @@ elif choice == "💵 P&L Dashboard":
         
         st.divider()
         st.subheader("📝 รายละเอียดบิลรายวัน")
-        st.dataframe(df_pl.sort_values('bill_date', ascending=False), hide_index=True, use_container_width=True)
+        st.dataframe(df_pl.sort_values('sale_date', ascending=False), hide_index=True, use_container_width=True)
     else:
         st.info("ระบบ P&L จะเริ่มแสดงผลเมื่อมีการสั่งซื้อผ่านระบบ 'บันทึกการขาย' ใหม่ครับ")
 
