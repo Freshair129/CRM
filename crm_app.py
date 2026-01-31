@@ -142,21 +142,59 @@ choice = st.session_state.menu_option
 # --- 📊 Dashboard ---
 if choice == "📊 Dashboard":
     st.header("📊 รายงานสรุปภาพรวม")
+    
+    # Updated Query with Category
     df_sales = run_query("""
         SELECT s.sale_date as "วันที่", c.full_name as "ลูกค้า", p.product_name as "สินค้า", 
-               s.amount as "ยอดเงิน", s.sale_channel as "ช่องทาง"
+               s.amount as "ยอดเงิน", s.sale_channel as "ช่องทาง", cat.cat_name as "หมวดหมู่"
         FROM sales_history s
         LEFT JOIN customers c ON s.customer_id = c.customer_id
         LEFT JOIN products p ON s.product_id = p.product_id
+        LEFT JOIN categories cat ON p.cat_id = cat.cat_id
     """)
+    
     if not df_sales.empty:
+        df_sales['วันที่'] = pd.to_datetime(df_sales['วันที่']).dt.date
         df_sales['ลูกค้า'] = df_sales['ลูกค้า'].fillna("❌ ข้อมูลถูกลบ")
         df_sales['สินค้า'] = df_sales['สินค้า'].fillna("❌ ข้อมูลถูกลบ")
-        c1, c2 = st.columns(2)
-        c1.metric("ยอดขายรวม", f"{df_sales['ยอดเงิน'].sum():,.2f} บาท")
-        c2.metric("จำนวนบิล", f"{len(df_sales)} รายการ")
+        df_sales['หมวดหมู่'] = df_sales['หมวดหมู่'].fillna("📁 ไม่ระบุหมวดหมู่")
+        
+        # --- Section 1: Top Metrics ---
+        st.subheader("🎯 เป้าหมายการขายรายวัน")
+        c1, c2 = st.columns([1, 2])
+        daily_goal = c1.number_input("ตั้งเป้าหมายยอดขาย (บาท)", min_value=0.0, value=100000.0, step=1000.0)
+        
+        today = datetime.now().date()
+        sales_today = df_sales[df_sales['วันที่'] == today]['ยอดเงิน'].sum()
+        diff = daily_goal - sales_today
+        
+        with c2:
+            st.write("") # Spacer
+            if diff > 0:
+                st.warning(f"🚩 ยอดขายวันนี้: {sales_today:,.2f} | ขาดอีก :red[{diff:,.2f}] บาท")
+            else:
+                st.success(f"🎊 ยอดขายวันนี้: {sales_today:,.2f} | เกินเป้าหมายมาแล้ว {abs(diff):,.2f} บาท")
+        
+        st.divider()
+        
+        mc1, mc2, mc3 = st.columns(3)
+        mc1.metric("ยอดขายรวมทั้งหมด", f"{df_sales['ยอดเงิน'].sum():,.2f} บาท")
+        mc2.metric("ยอดขายวันนี้", f"{sales_today:,.2f} บาท")
+        mc3.metric("จำนวนบิลรวม", f"{len(df_sales)} รายการ")
+        
+        # --- Section 2: Category Breakdown ---
+        st.subheader("📁 สรุปยอดขายตามหมวดหมู่สินค้า")
+        cat_summary = df_sales.groupby("หมวดหมู่")["ยอดเงิน"].sum().reset_index()
+        cat_summary = cat_summary.sort_values("ยอดเงิน", ascending=False)
+        st.dataframe(cat_summary, hide_index=True, use_container_width=True, 
+                     column_config={"ยอดเงิน": st.column_config.NumberColumn("ยอดเงินรวม", format="฿%,.2f")})
+        
+        # --- Section 3: History ---
+        st.subheader("📜 ประวัติการขายล่าสุด")
         st.dataframe(df_sales.sort_values('วันที่', ascending=False), use_container_width=True)
-    else: st.info("ยังไม่มีข้อมูลการขายในระบบ")
+        
+    else: 
+        st.info("ยังไม่มีข้อมูลการขายในระบบ")
 
 # --- 💰 บันทึกการขาย ---
 elif choice == "💰 บันทึกการขาย":
