@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import pandas as pd
 from datetime import datetime
 from sqlalchemy import create_engine, text
@@ -90,10 +90,30 @@ def init_db():
                 sale_note TEXT, 
                 closed_by_emp_id INTEGER, 
                 sale_date DATE
+            )''',
+            '''CREATE TABLE IF NOT EXISTS marketing_goals (
+                goal_id SERIAL PRIMARY KEY,
+                cat_id INTEGER,
+                channel TEXT,
+                target_amount REAL DEFAULT 0,
+                lead_forecast INTEGER DEFAULT 0,
+                month_year TEXT
+            )''',
+            '''CREATE TABLE IF NOT EXISTS daily_leads (
+                lead_id SERIAL PRIMARY KEY,
+                lead_date DATE DEFAULT CURRENT_DATE,
+                channel TEXT,
+                cat_id INTEGER,
+                lead_count INTEGER DEFAULT 0
             )'''
         ]
         for q in queries:
             run_query(q)
+        
+        # Add columns to 'bills' if they don't exist
+        try:
+            run_query("ALTER TABLE bills ADD COLUMN IF NOT EXISTS sale_channel TEXT")
+        except: pass
         
         # Add columns to 'customers' if they don't exist
         try:
@@ -139,6 +159,7 @@ with st.sidebar:
     st.button("🏆 ABC Analysis", on_click=set_menu, args=("🏆 ABC Analysis",), use_container_width=True)
     st.button("💵 P&L Dashboard", on_click=set_menu, args=("💵 P&L Dashboard",), use_container_width=True)
     st.button("🎯 Goal Tracker", on_click=set_menu, args=("🎯 Goal Tracker",), use_container_width=True)
+    st.button("📊 Marketing Actual", on_click=set_menu, args=("📊 Marketing Actual",), use_container_width=True)
     
     st.markdown("---")
     st.button("⚙️ ตั้งค่าระบบ", on_click=set_menu, args=("⚙️ ตั้งค่าระบบ",), use_container_width=True)
@@ -318,6 +339,107 @@ elif choice == "🎯 Goal Tracker":
         st.progress(progress / 100)
         st.write("")
 
+# --- 📊 Marketing Actual ---
+elif choice == "📊 Marketing Actual":
+    st.header("📊 รายงานประสิทธิภาพการตลาด (Marketing Actual)")
+    
+    df_cat = run_query("SELECT * FROM categories")
+    channels = ["Facebook Ads", "Google Ads", "TikTok Ads", "Line OA", "Openhouse", "โรงเรียนอนุบาล", "ลูกค้าเก่า/Re-sale", "อื่นๆ"]
+    
+    tab1, tab2, tab3 = st.tabs(["📈 สรุปผลงาน (Performance)", "📝 บันทึกคนทัก (Record Leads)", "⚙️ ตั้งเป้าหมาย (Set Goals)"])
+    
+    with tab3:
+        st.subheader("⚙️ ตั้งเป้าหมายแยกตามหมวดหมู่และช่องทาง")
+        if not df_cat.empty:
+            c1, c2, c3 = st.columns(3)
+            sel_cat_goal = c1.selectbox("เลือกหมวดหมู่", df_cat['cat_name'].tolist(), key="mkt_goal_cat")
+            sel_chan_goal = c2.selectbox("เลือกช่องทาง", channels, key="mkt_goal_chan")
+            goal_amt = c3.number_input("เป้าหมายยอดขาย (บาท)", min_value=0.0, step=1000.0)
+            
+            c4, c5 = st.columns(2)
+            lead_f = c4.number_input("เป้าหมายคนทัก (Leads)", min_value=0, step=1)
+            target_month = c5.text_input("เดือน/ปี (เช่น Jan-2026)", value=datetime.now().strftime("%b-%Y"))
+            
+            if st.button("💾 บันทึกเป้าหมาย"):
+                cat_id = df_cat[df_cat['cat_name'] == sel_cat_goal]['cat_id'].values[0]
+                run_query("""
+                    INSERT INTO marketing_goals (cat_id, channel, target_amount, lead_forecast, month_year)
+                    VALUES (:cid, :chan, :amt, :lf, :my)
+                """, {"cid": int(cat_id), "chan": sel_chan_goal, "amt": goal_amt, "lf": lead_f, "my": target_month})
+                st.success("บันทึกเป้าหมายสำเร็จ!")
+        else:
+            st.warning("กรุณาเพิ่มหมวดหมู่สินค้าก่อน")
+
+    with tab2:
+        st.subheader("📝 บันทึกจำนวนคนทักรายวัน (Daily Leads)")
+        if not df_cat.empty:
+            lc1, lc2, lc3 = st.columns(3)
+            l_date = lc1.date_input("วันที่", value=datetime.now().date())
+            l_cat = lc2.selectbox("หมวดหมู่สินค้า", df_cat['cat_name'].tolist(), key="lead_cat")
+            l_chan = lc3.selectbox("ช่องทาง", channels, key="lead_chan")
+            l_count = st.number_input("จำนวนคนทัก (Leads)", min_value=0, step=1)
+            
+            if st.button("➕ บันทึก Lead"):
+                cat_id = df_cat[df_cat['cat_name'] == l_cat]['cat_id'].values[0]
+                run_query("""
+                    INSERT INTO daily_leads (lead_date, channel, cat_id, lead_count)
+                    VALUES (:ld, :chan, :cid, :lc)
+                """, {"ld": l_date, "chan": l_chan, "cid": int(cat_id), "lc": l_count})
+                st.success(f"บันทึก {l_count} Leads สำหรับ {l_cat} ผ่าน {l_chan} เรียบร้อย!")
+        
+    with tab1:
+        st.subheader("🎯 ตารางเปรียบเทียบ เป้าหมาย vs ผลงานจริง")
+        
+        # 1. Get Goals
+        df_goals = run_query("""
+            SELECT g.*, c.cat_name 
+            FROM marketing_goals g
+            JOIN categories c ON g.cat_id = c.cat_id
+        """)
+        
+        # 2. Get Actual Sales from bills (grouped by category and channel)
+        df_actual_sales = run_query("""
+            SELECT p.cat_id, b.sale_channel as channel, SUM(bi.subtotal) as actual_amount
+            FROM bill_items bi
+            JOIN bills b ON bi.bill_id = b.bill_id
+            JOIN products p ON bi.product_id = p.product_id
+            GROUP BY p.cat_id, b.sale_channel
+        """)
+        
+        # 3. Get Actual Leads
+        df_actual_leads = run_query("""
+            SELECT cat_id, channel, SUM(lead_count) as actual_leads
+            FROM daily_leads
+            GROUP BY cat_id, channel
+        """)
+        
+        if not df_goals.empty:
+            # Merge Everything
+            summary = df_goals.merge(df_actual_sales, on=['cat_id', 'channel'], how='left')
+            summary = summary.merge(df_actual_leads, on=['cat_id', 'channel'], how='left')
+            
+            summary['actual_amount'] = summary['actual_amount'].fillna(0)
+            summary['actual_leads'] = summary['actual_leads'].fillna(0)
+            
+            # Calculations
+            summary['Diff Sales'] = summary['actual_amount'] - summary['target_amount']
+            summary['% Achievement'] = (summary['actual_amount'] / summary['target_amount'] * 100).fillna(0).round(1)
+            summary['Conv. Rate %'] = (summary['actual_amount'] / summary['actual_leads'].replace(0, 1) / 100).round(2) # Simplified for now
+            
+            # Display Table
+            final_display = summary[['cat_name', 'channel', 'lead_forecast', 'actual_leads', 'target_amount', 'actual_amount', 'Diff Sales', '% Achievement']]
+            
+            st.dataframe(final_display.style.background_gradient(subset=['% Achievement'], cmap='RdYlGn'), 
+                         use_container_width=True, hide_index=True,
+                         column_config={
+                             "target_amount": st.column_config.NumberColumn("Target Sale", format="฿%,.0f"),
+                             "actual_amount": st.column_config.NumberColumn("Actual Sale", format="฿%,.0f"),
+                             "Diff Sales": st.column_config.NumberColumn("DIFF", format="฿%,.0f"),
+                             "% Achievement": st.column_config.NumberColumn("% Achievement", format="%.1f%%")
+                         })
+        else:
+            st.info("กรุณาตั้งเป้าหมายในแท็บ 'ตั้งเป้าหมาย' เพื่อดูการเปรียบเทียบข้อมูล")
+
 
 # --- 💰 บันทึกการขาย ---
 elif choice == "💰 บันทึกการขาย":
@@ -405,7 +527,10 @@ elif choice == "💰 บันทึกการขาย":
             cc1, cc2, cc3 = st.columns(3)
             discount_pct = cc1.number_input("📉 ส่วนลด (%)", min_value=0.0, max_value=100.0, value=0.0)
             pay_method = cc2.selectbox("💳 วิธีชำระเงิน", ["โอนเงิน", "เงินสด"])
-            channel = cc3.radio("📡 ช่องทาง", ["ออนไลน์", "ออนไซต์"], horizontal=True)
+            
+            # Updated to match Marketing Channels
+            mkt_channels = ["Facebook Ads", "Google Ads", "TikTok Ads", "Line OA", "Openhouse", "โรงเรียนอนุบาล", "ลูกค้าเก่า/Re-sale", "อื่นๆ"]
+            sel_mkt_channel = cc3.selectbox("📡 ช่องทางที่มา", mkt_channels)
             
             discount_amt = (subtotal * discount_pct) / 100
             final_total = subtotal - discount_amt
@@ -430,11 +555,11 @@ elif choice == "💰 บันทึกการขาย":
                     c_id = int(sel_cust.split(" | ")[0])
                     e_id = int(df_e[df_e['disp'] == sel_emp]['emp_id'].values[0])
                     
-                    # Save Bill header
+                    # Save Bill header (Including sale_channel)
                     run_query("""
-                        INSERT INTO bills (bill_id, customer_id, seller_id, total_amount, discount, final_amount, payment_method)
-                        VALUES (:bid, :cid, :sid, :total, :disc, :final, :pay)
-                    """, {"bid": new_bill_id, "cid": c_id, "sid": e_id, "total": subtotal, "disc": discount_amt, "final": final_total, "pay": pay_method})
+                        INSERT INTO bills (bill_id, customer_id, seller_id, total_amount, discount, final_amount, payment_method, sale_channel)
+                        VALUES (:bid, :cid, :sid, :total, :disc, :final, :pay, :chan)
+                    """, {"bid": new_bill_id, "cid": c_id, "sid": e_id, "total": subtotal, "disc": discount_amt, "final": final_total, "pay": pay_method, "chan": sel_mkt_channel})
                     
                     # Save Bill items
                     for item in st.session_state.cart:
