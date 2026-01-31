@@ -117,10 +117,12 @@ if choice == "📊 Dashboard":
         SELECT s.sale_date as "วันที่", c.full_name as "ลูกค้า", p.product_name as "สินค้า", 
                s.amount as "ยอดเงิน", s.sale_channel as "ช่องทาง"
         FROM sales_history s
-        JOIN customers c ON s.customer_id = c.customer_id
-        JOIN products p ON s.product_id = p.product_id
+        LEFT JOIN customers c ON s.customer_id = c.customer_id
+        LEFT JOIN products p ON s.product_id = p.product_id
     """)
     if not df_sales.empty:
+        df_sales['ลูกค้า'] = df_sales['ลูกค้า'].fillna("❌ ข้อมูลถูกลบ")
+        df_sales['สินค้า'] = df_sales['สินค้า'].fillna("❌ ข้อมูลถูกลบ")
         c1, c2 = st.columns(2)
         c1.metric("ยอดขายรวม", f"{df_sales['ยอดเงิน'].sum():,.2f} บาท")
         c2.metric("จำนวนบิล", f"{len(df_sales)} รายการ")
