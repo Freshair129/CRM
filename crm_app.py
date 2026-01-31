@@ -166,9 +166,10 @@ elif choice == "💰 บันทึกการขาย":
     if 'cart' not in st.session_state:
         st.session_state.cart = []
     
-    df_p = run_query("SELECT product_id, product_name, price FROM products")
+    df_p = run_query("SELECT p.product_id, p.product_name, p.price, p.cat_id, c.cat_name FROM products p LEFT JOIN categories c ON p.cat_id = c.cat_id")
     df_e = run_query("SELECT emp_id, emp_name, emp_nickname FROM employees")
     df_all_c = run_query("SELECT customer_id, full_name, nickname FROM customers")
+    df_cat = run_query("SELECT * FROM categories")
 
     if df_all_c.empty or df_p.empty or df_e.empty:
         st.warning("⚠️ ข้อมูลไม่ครบ: กรุณาเพิ่ม ลูกค้า สินค้า และพนักงานก่อน")
@@ -177,28 +178,40 @@ elif choice == "💰 บันทึกการขาย":
         c1, c2 = st.columns(2)
         with c1:
             df_all_c['search_display'] = df_all_c.apply(lambda x: f"{x['customer_id']} | {x['full_name']} ({x['nickname'] or '-'})", axis=1)
-            sel_cust = st.selectbox("👤 เลือกลูกค้า", ["-- เลือกรายชื่อลูกค้า --"] + df_all_c['search_display'].tolist())
+            sel_cust = st.selectbox("👤 เลือกลูกค้า", ["-- เลือกรายชื่อลูกค้า --"] + df_all_c['search_display'].tolist(), key="sale_cust")
         with c2:
             df_e['disp'] = df_e['emp_nickname'].fillna(df_e['emp_name'])
-            sel_emp = st.selectbox("👔 พนักงานผู้ขาย", ["-- เลือกพนักงาน --"] + df_e['disp'].tolist())
+            sel_emp = st.selectbox("👔 พนักงานผู้ขาย", ["-- เลือกพนักงาน --"] + df_e['disp'].tolist(), key="sale_emp")
         
         st.divider()
         
         # 2. Add to Cart Section
         with st.expander("➕ เพิ่มสินค้าลงตระกร้า", expanded=True):
-            ac1, ac2, ac3 = st.columns([3, 1, 1])
-            prod_to_add = ac1.selectbox("เลือกสินค้า", df_p['product_name'].tolist())
-            qty_to_add = ac2.number_input("จำนวน", min_value=1, value=1)
-            if ac3.button("➕ เพิ่มลงตระกร้า", use_container_width=True, type="secondary"):
-                p_info = df_p[df_p['product_name'] == prod_to_add].iloc[0]
-                st.session_state.cart.append({
-                    "id": int(p_info['product_id']),
-                    "name": p_info['product_name'],
-                    "price": float(p_info['price']),
-                    "qty": qty_to_add,
-                    "total": float(p_info['price'] * qty_to_add)
-                })
-                st.rerun()
+            # Category filter first
+            cat_list = ["-- เลือกหมวดหมู่ (หรือทั้งหมด) --"] + sorted(df_cat['cat_name'].tolist())
+            sel_cat_sale = st.selectbox("📂 ตัวกรองหมวดหมู่", cat_list)
+            
+            if sel_cat_sale != "-- เลือกหมวดหมู่ (หรือทั้งหมด) --":
+                df_p_filtered = df_p[df_p['cat_name'] == sel_cat_sale]
+            else:
+                df_p_filtered = df_p
+            
+            if not df_p_filtered.empty:
+                ac1, ac2, ac3 = st.columns([3, 1, 1])
+                prod_to_add = ac1.selectbox("เลือกสินค้า", df_p_filtered['product_name'].tolist())
+                qty_to_add = ac2.number_input("จำนวน", min_value=1, value=1)
+                if ac3.button("➕ เพิ่มลงตระกร้า", use_container_width=True, type="secondary"):
+                    p_info = df_p_filtered[df_p_filtered['product_name'] == prod_to_add].iloc[0]
+                    st.session_state.cart.append({
+                        "id": int(p_info['product_id']),
+                        "name": p_info['product_name'],
+                        "price": float(p_info['price']),
+                        "qty": qty_to_add,
+                        "total": float(p_info['price'] * qty_to_add)
+                    })
+                    st.rerun()
+            else:
+                st.info("ไม่พบสินค้าในหมวดหมู่นี้")
 
         # 3. Cart Display
         if st.session_state.cart:
