@@ -431,27 +431,6 @@ if choice == "👥 จัดการลูกค้า":
 
             note = st.text_area("หมายเหตุเพิ่มเติม", value=curr_data.get('cust_note', "") or "", key=f"c_note_{form_key_suffix}")
             
-            st.divider()
-            st.write("📋 **ข้อมูลส่วนตัวเพิ่มเติม**")
-            g_opts = ["-- ระบุเพศ --", "ชาย", "หญิง", "อื่นๆ"]
-            g_idx = 0
-            if edit_mode and curr_data.get('gender') in g_opts:
-                g_idx = g_opts.index(curr_data.get('gender'))
-            gender = st.selectbox("เพศ", g_opts, index=g_idx)
-            
-            m_opts = ["-- สถานะภาพ --", "โสด", "แต่งงานแล้ว", "หย่าร้าง / หม้าย"]
-            m_idx = 0
-            if edit_mode and curr_data.get('marital_status') in m_opts:
-                m_idx = m_opts.index(curr_data.get('marital_status'))
-            marital = st.selectbox("สถานะภาพ", m_opts, index=m_idx)
-            
-            c_opts = ["-- ข้อมูลบุตร --", "ยังไม่มีบุตร", "มีบุตรแล้ว"]
-            c_idx = 0
-            if edit_mode and curr_data.get('has_children') in c_opts:
-                c_idx = c_opts.index(curr_data.get('has_children'))
-            children = st.selectbox("การมีบุตร", c_opts, index=c_idx)
-
-            note = st.text_area("หมายเหตุเพิ่มเติม", value=curr_data.get('cust_note', "") or "")
 
         btn_label = "💾 บันทึกการแก้ไข" if edit_mode else "💾 ลงทะเบียนลูกค้าใหม่"
         bc1, bc2 = st.columns([1, 1])
