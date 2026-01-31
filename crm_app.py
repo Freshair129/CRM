@@ -546,20 +546,10 @@ elif choice == "👔 จัดการพนักงาน":
 # --- 📦 จัดการสินค้า ---
 elif choice == "📦 จัดการสินค้า":
     st.header("📦 คลังสินค้า")
-    st.subheader("📋 รายการสินค้าทั้งหมด")
-    search_p = st.text_input("🔍 ค้นหาสินค้า", placeholder="พิมพ์ชื่อสินค้าที่นี่...")
     
     df_p = run_query("SELECT p.product_id, p.product_name, c.cat_name, p.price, p.cat_id FROM products p LEFT JOIN categories c ON p.cat_id = c.cat_id")
+    
     if not df_p.empty:
-        if search_p:
-            df_fp = df_p[df_p['product_name'].str.contains(search_p, case=False, na=False)]
-        else:
-            df_fp = df_p
-        
-        st.dataframe(df_fp[["product_id", "product_name", "cat_name", "price"]], 
-                     hide_index=True, use_container_width=True,
-                     column_config={"product_id": "ID", "product_name": "ชื่อสินค้า", "cat_name": "หมวดหมู่", "price": "ราคา"})
-
         p_opts = ["➕ เพิ่มสินค้าใหม่"] + [f"{r['product_id']} | {r['product_name']}" for _, r in df_p.iterrows()]
         sel_edit_p = st.selectbox("📝 เลือกสินค้าเพื่อ แก้ไข หรือ ลบข้อมูล", p_opts)
     else:
@@ -611,6 +601,19 @@ elif choice == "📦 จัดการสินค้า":
                 run_query("DELETE FROM products WHERE product_id = :id", {"id": edit_id})
                 st.warning(f"ลบสินค้า {pn} เรียบร้อย")
                 st.rerun()
+
+    st.divider()
+    st.subheader("📋 รายการสินค้าทั้งหมด")
+    search_p = st.text_input("🔍 ค้นหาสินค้า", placeholder="พิมพ์ชื่อสินค้าที่นี่...")
+    if not df_p.empty:
+        if search_p:
+            df_fp = df_p[df_p['product_name'].str.contains(search_p, case=False, na=False)]
+        else:
+            df_fp = df_p
+        
+        st.dataframe(df_fp[["product_id", "product_name", "cat_name", "price"]], 
+                     hide_index=True, use_container_width=True,
+                     column_config={"product_id": "ID", "product_name": "ชื่อสินค้า", "cat_name": "หมวดหมู่", "price": "ราคา"})
 
 # --- ⚙️ ตั้งค่าระบบ ---
 elif choice == "⚙️ ตั้งค่าระบบ":
