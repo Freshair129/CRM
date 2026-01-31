@@ -172,13 +172,14 @@ choice = st.session_state.menu_option
 if choice == "📊 Dashboard":
     st.header("📊 รายงานสรุปภาพรวม")
     
-    # Updated Query with Category
+    # Updated Query with Category (Synchronized with Marketing Actual)
     df_sales = run_query("""
-        SELECT s.sale_date as "วันที่", c.full_name as "ลูกค้า", p.product_name as "สินค้า", 
-               s.amount as "ยอดเงิน", s.sale_channel as "ช่องทาง", cat.cat_name as "หมวดหมู่"
-        FROM sales_history s
-        LEFT JOIN customers c ON s.customer_id = c.customer_id
-        LEFT JOIN products p ON s.product_id = p.product_id
+        SELECT b.sale_date as "วันที่", c.full_name as "ลูกค้า", bi.product_name as "สินค้า", 
+               bi.subtotal as "ยอดเงิน", b.sale_channel as "ช่องทาง", cat.cat_name as "หมวดหมู่"
+        FROM bill_items bi
+        JOIN bills b ON bi.bill_id = b.bill_id
+        LEFT JOIN customers c ON b.customer_id = c.customer_id
+        LEFT JOIN products p ON bi.product_id = p.product_id
         LEFT JOIN categories cat ON p.cat_id = cat.cat_id
     """)
     
@@ -311,13 +312,15 @@ elif choice == "🎯 Goal Tracker":
         target_mid = gl2.number_input("เป้าหมายกลาง (Mid)", value=2500000.0, step=10000.0)
         target_high = gl3.number_input("เป้าหมายสูงสุด (High)", value=5000000.0, step=10000.0)
 
-    # คำนวณยอดขายเดือนนี้
+    # คำนวณยอดขายเดือนนี้ (Synchronized with Marketing Actual)
     now = datetime.now()
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     
     df_month = run_query("""
-        SELECT SUM(amount) as m_total FROM sales_history 
-        WHERE sale_date >= :start
+        SELECT SUM(bi.subtotal) as m_total 
+        FROM bill_items bi
+        JOIN bills b ON bi.bill_id = b.bill_id
+        WHERE b.sale_date >= :start
     """, {"start": month_start.date()})
     
     current_sales = df_month['m_total'][0] or 0.0
@@ -572,7 +575,7 @@ elif choice == "💰 บันทึกการขาย":
                         run_query("""
                             INSERT INTO sales_history (customer_id, product_id, amount, payment_method, sale_channel, closed_by_emp_id, sale_date)
                             VALUES (:cid, :pid, :amt, :pay, :ch, :eid, :dt)
-                        """, {"cid": c_id, "pid": item['id'], "amt": item['total'], "pay": pay_method, "ch": channel, "eid": e_id, "dt": now.date()})
+                        """, {"cid": c_id, "pid": item['id'], "amt": item['total'], "pay": pay_method, "ch": sel_mkt_channel, "eid": e_id, "dt": now.date()})
                     
                     st.success(f"✅ บันทึกบิล {new_bill_id} สำเร็จ!")
                     
