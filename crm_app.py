@@ -342,7 +342,7 @@ elif choice == "👔 จัดการพนักงาน":
                                   {"name": en, "nick": eni, "pos": ep})
                         st.success(f"✅ เพิ่มคุณ {en} สำเร็จ!")
                     st.rerun()
-                except: st.error("❌ เกิดข้อผิดพลาด (อาจมีชื่อซ้ำ)")
+                except Exception: st.error("❌ เกิดข้อผิดพลาด (อาจมีชื่อซ้ำ)")
         
         if edit_mode:
             if bc2.button("🗑️ ลบพนักงานท่านนี้", use_container_width=True):
@@ -359,7 +359,7 @@ elif choice == "👔 จัดการพนักงาน":
 elif choice == "📦 จัดการสินค้า":
     st.header("📦 คลังสินค้า")
     df_cat = run_query("SELECT * FROM categories")
-    df_p = run_query("SELECT p.product_id, p.product_name, c.cat_name, p.price, p.cat_id FROM products p JOIN categories c ON p.cat_id = c.cat_id")
+    df_p = run_query("SELECT p.product_id, p.product_name, c.cat_name, p.price, p.cat_id FROM products p LEFT JOIN categories c ON p.cat_id = c.cat_id")
     
     p_opts = ["➕ เพิ่มสินค้าใหม่"] + [f"{r['product_id']} | {r['product_name']}" for _, r in df_p.iterrows()]
     sel_edit_p = st.selectbox("🔍 เลือกสินค้าที่ต้องการแก้ไข", p_opts)
@@ -401,7 +401,7 @@ elif choice == "📦 จัดการสินค้า":
                                   {"name": pn, "cat": cat_id, "price": pr})
                         st.success(f"✅ เพิ่ม {pn} สำเร็จ!")
                     st.rerun()
-                except: st.error("❌ เกิดข้อผิดพลาด (อาจมีชื่อซ้ำ)")
+                except Exception: st.error("❌ เกิดข้อผิดพลาด (อาจมีชื่อซ้ำ)")
         
         if edit_mode:
             if bc2.button("🗑️ ลบสินค้านี้", use_container_width=True):
