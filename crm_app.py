@@ -327,23 +327,11 @@ elif choice == "💰 บันทึกการขาย":
 if choice == "👥 จัดการลูกค้า":
     st.header("👥 จัดการฐานข้อมูลลูกค้า")
     
-    st.subheader("📋 รายชื่อลูกค้าทั้งหมด")
-    search_q = st.text_input("🔍 ค้นหา (ชื่อ หรือ เบอร์โทร)", placeholder="พิมพ์ค้นหาที่นี่...")
-    
     df_all_c = run_query("SELECT * FROM customers")
+    
     if not df_all_c.empty:
-        if search_q:
-            df_filtered = df_all_c[df_all_c['full_name'].str.contains(search_q, case=False, na=False) | 
-                                   df_all_c['phone'].str.contains(search_q, case=False, na=False)]
-        else:
-            df_filtered = df_all_c
-        
-        st.dataframe(df_filtered[["customer_id", "full_name", "nickname", "phone", "province"]], 
-                     hide_index=True, use_container_width=True,
-                     column_config={"customer_id": "ID", "full_name": "ชื่อ-นามสกุล", "nickname": "ชื่อเล่น", "phone": "เบอร์โทร", "province": "จังหวัด"})
-        
         c_opts = ["➕ ลงทะเบียนลูกค้าใหม่"] + [f"{r['customer_id']} | {r['full_name']}" for _, r in df_all_c.iterrows()]
-        sel_edit_c = st.selectbox("📝 เลือกรายชื่อเพื่อ แก้ไข หรือ ลบข้อมูล", c_opts)
+        sel_edit_c = st.selectbox("📝 เลือกรายชื่อเพื่อ แกไข หรือ ลบข้อมูล", c_opts)
     else:
         st.info("ยังไม่มีข้อมูลลูกค้า")
         sel_edit_c = "➕ ลงทะเบียนลูกค้าใหม่"
@@ -474,6 +462,21 @@ if choice == "👥 จัดการลูกค้า":
                 run_query("DELETE FROM customers WHERE customer_id = :id", {"id": edit_id})
                 st.warning(f"ลบคุณ {name} เรียบร้อย")
                 st.rerun()
+
+    st.divider()
+    st.subheader("📋 รายชื่อลูกค้าทั้งหมด")
+    search_q = st.text_input("🔍 ค้นหา (ชื่อ หรือ เบอร์โทร)", placeholder="พิมพ์ค้นหาที่นี่...")
+    
+    if not df_all_c.empty:
+        if search_q:
+            df_filtered = df_all_c[df_all_c['full_name'].str.contains(search_q, case=False, na=False) | 
+                                   df_all_c['phone'].str.contains(search_q, case=False, na=False)]
+        else:
+            df_filtered = df_all_c
+        
+        st.dataframe(df_filtered[["customer_id", "full_name", "nickname", "phone", "province"]], 
+                     hide_index=True, use_container_width=True,
+                     column_config={"customer_id": "ID", "full_name": "ชื่อ-นามสกุล", "nickname": "ชื่อเล่น", "phone": "เบอร์โทร", "province": "จังหวัด"})
 
 
 # --- 👔 จัดการพนักงาน ---
