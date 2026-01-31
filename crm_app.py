@@ -180,26 +180,35 @@ elif choice == "💰 บันทึกการขาย":
 if choice == "👥 จัดการลูกค้า":
     st.header("👥 จัดการฐานข้อมูลลูกค้า")
     
-    df_emp = run_query("SELECT emp_id, emp_name, emp_nickname FROM employees")
-    if not df_emp.empty:
-        df_emp['display_name'] = df_emp['emp_nickname'].apply(lambda x: x if x and str(x).strip() != "" else None).fillna(df_emp['emp_name'])
+    st.subheader("📋 รายชื่อลูกค้าทั้งหมด")
+    search_q = st.text_input("🔍 ค้นหา (ชื่อ หรือ เบอร์โทร)", placeholder="พิมพ์ค้นหาที่นี่...")
+    
+    df_all_c = run_query("SELECT * FROM customers")
+    if not df_all_c.empty:
+        if search_q:
+            df_filtered = df_all_c[df_all_c['full_name'].str.contains(search_q, case=False, na=False) | 
+                                   df_all_c['phone'].str.contains(search_q, case=False, na=False)]
+        else:
+            df_filtered = df_all_c
+        
+        st.dataframe(df_filtered[["customer_id", "full_name", "nickname", "phone", "province"]], 
+                     hide_index=True, use_container_width=True,
+                     column_config={"customer_id": "ID", "full_name": "ชื่อ-นามสกุล", "nickname": "ชื่อเล่น", "phone": "เบอร์โทร", "province": "จังหวัด"})
+        
+        c_opts = ["➕ ลงทะเบียนลูกค้าใหม่"] + [f"{r['customer_id']} | {r['full_name']}" for _, r in df_all_c.iterrows()]
+        sel_edit_c = st.selectbox("📝 เลือกรายชื่อเพื่อ แก้ไข หรือ ลบข้อมูล", c_opts)
     else:
-        df_emp = pd.DataFrame(columns=['emp_id', 'emp_name', 'emp_nickname', 'display_name'])
-    
-    df_all_c = run_query("SELECT customer_id, full_name FROM customers")
+        st.info("ยังไม่มีข้อมูลลูกค้า")
+        sel_edit_c = "➕ ลงทะเบียนลูกค้าใหม่"
 
-    # --- ส่วนเลือกเพื่อแก้ไข ---
-    c_opts = ["➕ เพิ่มลูกค้าใหม่"] + [f"{r['customer_id']} | {r['full_name']}" for _, r in df_all_c.iterrows()]
-    sel_edit_c = st.selectbox("🔍 เลือกรายชื่อลูกค้าที่ต้องการแก้ไข", c_opts)
-    
     edit_mode = False
     edit_id = None
     curr_data = {}
     
-    if sel_edit_c != "➕ เพิ่มลูกค้าใหม่":
+    if sel_edit_c != "➕ ลงทะเบียนลูกค้าใหม่":
         edit_mode = True
         edit_id = int(sel_edit_c.split(" | ")[0])
-        curr_data = run_query("SELECT * FROM customers WHERE customer_id = :id", {"id": edit_id}).iloc[0].to_dict()
+        curr_data = df_all_c[df_all_c['customer_id'] == edit_id].iloc[0].to_dict()
 
     with st.expander("📝 ฟอร์มข้อมูลลูกค้า", expanded=True):
         c1, c2 = st.columns(2)
@@ -235,7 +244,13 @@ if choice == "👥 จัดการลูกค้า":
             fb = st.text_input("Facebook", value=curr_data.get('facebook', "") or "")
             ig = st.text_input("Instagram", value=curr_data.get('instagram', "") or "")
             
-            e_names = df_emp['display_name'].tolist() if not df_emp.empty else []
+            df_emp = run_query("SELECT emp_id, emp_name, emp_nickname FROM employees")
+            if not df_emp.empty:
+                df_emp['display_name'] = df_emp['emp_nickname'].apply(lambda x: x if x and str(x).strip() != "" else None).fillna(df_emp['emp_name'])
+                e_names = df_emp['display_name'].tolist()
+            else:
+                e_names = []
+                
             e_idx = 0
             if edit_mode and not df_emp.empty:
                 curr_eid = curr_data.get('assigned_sales_id')
@@ -247,7 +262,7 @@ if choice == "👥 จัดการลูกค้า":
             emp_l = st.selectbox("พนักงานผู้ดูแล", ["-- ไม่ระบุ --"] + e_names, index=e_idx)
             note = st.text_area("หมายเหตุเพิ่มเติม", value=curr_data.get('cust_note', "") or "")
 
-        btn_label = "💾 บันทึกการแก้ไข" if edit_mode else "💾 บันทึกรายชื่อลูกค้าใหม่"
+        btn_label = "💾 บันทึกการแก้ไข" if edit_mode else "💾 ลงทะเบียนลูกค้าใหม่"
         bc1, bc2 = st.columns([1, 1])
         
         if bc1.button(btn_label, use_container_width=True, type="primary"):
@@ -282,30 +297,36 @@ if choice == "👥 จัดการลูกค้า":
                 st.warning("⚠️ กรุณากรอกชื่อและเลือกจังหวัดให้ครบถ้วน")
         
         if edit_mode:
-            if bc2.button("🗑️ ลบรายชื่อนี้", use_container_width=True):
+            if bc2.button("🗑️ ลบรายชื่อลูกค้านี้", use_container_width=True):
                 run_query("DELETE FROM customers WHERE customer_id = :id", {"id": edit_id})
                 st.warning(f"ลบคุณ {name} เรียบร้อย")
                 st.rerun()
-
-    st.divider()
-    st.subheader("📋 รายชื่อลูกค้าทั้งหมด")
-    df_list = run_query("SELECT customer_id as ID, full_name as ชื่อ, nickname as ชื่อเล่น, phone as เบอร์โทร, province as จังหวัด FROM customers")
-    
-    if not df_list.empty:
-        st.dataframe(df_list, hide_index=True, use_container_width=True)
-    else:
-        st.info("ยังไม่มีข้อมูลลูกค้า")
 
 
 # --- 👔 จัดการพนักงาน ---
 elif choice == "👔 จัดการพนักงาน":
     st.header("👔 การจัดการพนักงาน")
-    df_pos = run_query("SELECT pos_name FROM job_positions")
+    st.subheader("📋 รายชื่อพนักงานทั้งหมด")
+    search_e = st.text_input("🔍 ค้นหาพนักงาน", placeholder="พิมพ์ชื่อพนักงานที่นี่...")
+    
     df_e = run_query("SELECT * FROM employees")
-    
-    e_opts = ["➕ เพิ่มพนักงานใหม่"] + [f"{r['emp_id']} | {r['emp_name']} ({r['emp_nickname'] or '-'})" for _, r in df_e.iterrows()]
-    sel_edit_e = st.selectbox("🔍 เลือกพนักงานที่ต้องการแก้ไข", e_opts)
-    
+    if not df_e.empty:
+        if search_e:
+            df_fe = df_e[df_e['emp_name'].str.contains(search_e, case=False, na=False) | 
+                         df_e['emp_nickname'].str.contains(search_e, case=False, na=False)]
+        else:
+            df_fe = df_e
+        
+        st.dataframe(df_fe[["emp_id", "emp_name", "emp_nickname", "position"]], 
+                     hide_index=True, use_container_width=True,
+                     column_config={"emp_id": "ID", "emp_name": "ชื่อจริง", "emp_nickname": "ชื่อเล่น", "position": "ตำแหน่ง"})
+
+        e_opts = ["➕ เพิ่มพนักงานใหม่"] + [f"{r['emp_id']} | {r['emp_name']} ({r['emp_nickname'] or '-'})" for _, r in df_e.iterrows()]
+        sel_edit_e = st.selectbox("📝 เลือกพนักงานเพื่อ แก้ไข หรือ ลบข้อมูล", e_opts)
+    else:
+        st.info("ยังไม่มีข้อมูลพนักงาน")
+        sel_edit_e = "➕ เพิ่มพนักงานใหม่"
+
     edit_mode = False
     edit_id = None
     curr_data = {}
@@ -320,6 +341,7 @@ elif choice == "👔 จัดการพนักงาน":
         en = c1.text_input("ชื่อจริง", value=curr_data.get('emp_name', "") or "")
         eni = c2.text_input("ชื่อเล่น", value=curr_data.get('emp_nickname', "") or "")
         
+        df_pos = run_query("SELECT pos_name FROM job_positions")
         pos_list = df_pos['pos_name'].tolist() if not df_pos.empty else ["-"]
         p_idx = 0
         if edit_mode and curr_data.get('position') in pos_list:
@@ -350,20 +372,29 @@ elif choice == "👔 จัดการพนักงาน":
                 st.warning(f"ลบพนักงาน {en} เรียบร้อย")
                 st.rerun()
 
-    st.divider()
-    if not df_e.empty:
-        st.subheader("📋 รายชื่อพนักงานทั้งหมด")
-        st.dataframe(df_e[["emp_id", "emp_name", "emp_nickname", "position"]], hide_index=True, use_container_width=True)
-
 # --- 📦 จัดการสินค้า ---
 elif choice == "📦 จัดการสินค้า":
     st.header("📦 คลังสินค้า")
-    df_cat = run_query("SELECT * FROM categories")
+    st.subheader("📋 รายการสินค้าทั้งหมด")
+    search_p = st.text_input("🔍 ค้นหาสินค้า", placeholder="พิมพ์ชื่อสินค้าที่นี่...")
+    
     df_p = run_query("SELECT p.product_id, p.product_name, c.cat_name, p.price, p.cat_id FROM products p LEFT JOIN categories c ON p.cat_id = c.cat_id")
-    
-    p_opts = ["➕ เพิ่มสินค้าใหม่"] + [f"{r['product_id']} | {r['product_name']}" for _, r in df_p.iterrows()]
-    sel_edit_p = st.selectbox("🔍 เลือกสินค้าที่ต้องการแก้ไข", p_opts)
-    
+    if not df_p.empty:
+        if search_p:
+            df_fp = df_p[df_p['product_name'].str.contains(search_p, case=False, na=False)]
+        else:
+            df_fp = df_p
+        
+        st.dataframe(df_fp[["product_id", "product_name", "cat_name", "price"]], 
+                     hide_index=True, use_container_width=True,
+                     column_config={"product_id": "ID", "product_name": "ชื่อสินค้า", "cat_name": "หมวดหมู่", "price": "ราคา"})
+
+        p_opts = ["➕ เพิ่มสินค้าใหม่"] + [f"{r['product_id']} | {r['product_name']}" for _, r in df_p.iterrows()]
+        sel_edit_p = st.selectbox("📝 เลือกสินค้าเพื่อ แก้ไข หรือ ลบข้อมูล", p_opts)
+    else:
+        st.info("ยังไม่มีข้อมูลสินค้า")
+        sel_edit_p = "➕ เพิ่มสินค้าใหม่"
+
     edit_mode = False
     edit_id = None
     curr_data = {}
@@ -377,6 +408,7 @@ elif choice == "📦 จัดการสินค้า":
         c1, c2, c3 = st.columns(3)
         pn = c1.text_input("ชื่อสินค้า", value=curr_data.get('product_name', "") or "")
         
+        df_cat = run_query("SELECT * FROM categories")
         cat_list = df_cat['cat_name'].tolist() if not df_cat.empty else ["-"]
         cat_idx = 0
         if edit_mode and curr_data.get('cat_name') in cat_list:
@@ -408,11 +440,6 @@ elif choice == "📦 จัดการสินค้า":
                 run_query("DELETE FROM products WHERE product_id = :id", {"id": edit_id})
                 st.warning(f"ลบสินค้า {pn} เรียบร้อย")
                 st.rerun()
-
-    st.divider()
-    if not df_p.empty:
-        st.subheader("📋 รายการสินค้าทั้งหมด")
-        st.dataframe(df_p[["product_id", "product_name", "cat_name", "price"]], hide_index=True, use_container_width=True)
 
 # --- ⚙️ ตั้งค่าระบบ ---
 elif choice == "⚙️ ตั้งค่าระบบ":
