@@ -429,7 +429,7 @@ elif choice == "📊 Marketing Actual":
             # Display Table
             final_display = summary[['cat_name', 'channel', 'lead_forecast', 'actual_leads', 'target_amount', 'actual_amount', 'Diff Sales', '% Achievement']]
             
-            st.dataframe(final_display.style.background_gradient(subset=['% Achievement'], cmap='RdYlGn'), 
+            st.dataframe(final_display, 
                          use_container_width=True, hide_index=True,
                          column_config={
                              "target_amount": st.column_config.NumberColumn("Target Sale", format="฿%,.0f"),
