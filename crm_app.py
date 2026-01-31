@@ -55,8 +55,30 @@ def init_db():
                 sub_district TEXT, 
                 zipcode TEXT,
                 gender TEXT, 
+                marital_status TEXT,
+                has_children TEXT,
                 cust_note TEXT, 
                 assigned_sales_id INTEGER
+            )''',
+            '''CREATE TABLE IF NOT EXISTS bills (
+                bill_id TEXT PRIMARY KEY,
+                customer_id INTEGER,
+                seller_id INTEGER,
+                total_amount REAL,
+                discount REAL,
+                final_amount REAL,
+                payment_method TEXT,
+                sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                note TEXT
+            )''',
+            '''CREATE TABLE IF NOT EXISTS bill_items (
+                item_id SERIAL PRIMARY KEY,
+                bill_id TEXT,
+                product_id INTEGER,
+                product_name TEXT,
+                qty INTEGER,
+                unit_price REAL,
+                subtotal REAL
             )''',
             '''CREATE TABLE IF NOT EXISTS sales_history (
                 sale_id SERIAL PRIMARY KEY, 
@@ -72,6 +94,13 @@ def init_db():
         ]
         for q in queries:
             run_query(q)
+        
+        # Add columns to 'customers' if they don't exist
+        try:
+            run_query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS gender TEXT")
+            run_query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS marital_status TEXT")
+            run_query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS has_children TEXT")
+        except: pass
     except Exception as e:
         st.error(f"⚠️ Database Error: {e}")
 
@@ -131,7 +160,12 @@ if choice == "📊 Dashboard":
 
 # --- 💰 บันทึกการขาย ---
 elif choice == "💰 บันทึกการขาย":
-    st.header("💰 บันทึกรายการขายใหม่")
+    st.header("🛒 ระบบบันทึกการขาย (ตระกร้าสินค้า)")
+    
+    # Initialize Cart
+    if 'cart' not in st.session_state:
+        st.session_state.cart = []
+    
     df_p = run_query("SELECT product_id, product_name, price FROM products")
     df_e = run_query("SELECT emp_id, emp_name, emp_nickname FROM employees")
     df_all_c = run_query("SELECT customer_id, full_name, nickname FROM customers")
@@ -139,44 +173,155 @@ elif choice == "💰 บันทึกการขาย":
     if df_all_c.empty or df_p.empty or df_e.empty:
         st.warning("⚠️ ข้อมูลไม่ครบ: กรุณาเพิ่ม ลูกค้า สินค้า และพนักงานก่อน")
     else:
-        df_all_c['search_display'] = df_all_c.apply(
-            lambda x: f"{x['customer_id']} | {x['full_name']} ({x['nickname'] or '-'})", axis=1
-        )
+        # 1. Customer & Seller Selection
+        c1, c2 = st.columns(2)
+        with c1:
+            df_all_c['search_display'] = df_all_c.apply(lambda x: f"{x['customer_id']} | {x['full_name']} ({x['nickname'] or '-'})", axis=1)
+            sel_cust = st.selectbox("👤 เลือกลูกค้า", ["-- เลือกรายชื่อลูกค้า --"] + df_all_c['search_display'].tolist())
+        with c2:
+            df_e['disp'] = df_e['emp_nickname'].fillna(df_e['emp_name'])
+            sel_emp = st.selectbox("👔 พนักงานผู้ขาย", ["-- เลือกพนักงาน --"] + df_e['disp'].tolist())
         
-        with st.form("sales_form_smart", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                target_cust = st.selectbox("ค้นหาลูกค้า (พิมพ์ ID/ชื่อ/ชื่อเล่น)", ["-- เลือกรายชื่อลูกค้า --"] + df_all_c['search_display'].tolist())
-                sel_prod = st.selectbox("เลือกสินค้า", ["-- เลือกสินค้า --"] + df_p['product_name'].tolist())
-                channel = st.radio("ช่องทาง", ["ออนไลน์", "ออนไซต์"], horizontal=True)
-            with col2:
-                df_e['disp'] = df_e['emp_nickname'].fillna(df_e['emp_name'])
-                sel_emp = st.selectbox("พนักงานผู้ขาย", ["-- เลือกพนักงาน --"] + df_e['disp'].tolist())
-                qty = st.number_input("จำนวน", min_value=1, value=1)
-                pay_method = st.selectbox("วิธีชำระ", ["โอนเงิน", "เงินสด"])
-            
-            note = st.text_area("หมายเหตุการขาย")
-            
-            if sel_prod != "-- เลือกสินค้า --":
-                unit_price = df_p[df_p['product_name'] == sel_prod]['price'].values[0]
-                st.markdown(f"### ยอดรวม: :red[{unit_price * qty:,.2f}] บาท")
-            else:
-                unit_price = 0
-                st.markdown("### ยอดรวม: :grey[0.00] บาท")
+        st.divider()
+        
+        # 2. Add to Cart Section
+        with st.expander("➕ เพิ่มสินค้าลงตระกร้า", expanded=True):
+            ac1, ac2, ac3 = st.columns([3, 1, 1])
+            prod_to_add = ac1.selectbox("เลือกสินค้า", df_p['product_name'].tolist())
+            qty_to_add = ac2.number_input("จำนวน", min_value=1, value=1)
+            if ac3.button("➕ เพิ่มลงตระกร้า", use_container_width=True, type="secondary"):
+                p_info = df_p[df_p['product_name'] == prod_to_add].iloc[0]
+                st.session_state.cart.append({
+                    "id": int(p_info['product_id']),
+                    "name": p_info['product_name'],
+                    "price": float(p_info['price']),
+                    "qty": qty_to_add,
+                    "total": float(p_info['price'] * qty_to_add)
+                })
+                st.rerun()
 
-            if st.form_submit_button("✅ บันทึกการขาย"):
-                if target_cust != "-- เลือกรายชื่อลูกค้า --" and sel_prod != "-- เลือกสินค้า --" and sel_emp != "-- เลือกพนักงาน --":
-                    c_id = int(target_cust.split(" | ")[0])
-                    p_id = int(df_p[df_p['product_name'] == sel_prod]['product_id'].values[0])
-                    e_id = int(df_e[df_e['disp'] == sel_emp]['emp_id'].values[0])
-                    run_query("""
-                        INSERT INTO sales_history (customer_id, product_id, amount, payment_method, sale_channel, sale_note, closed_by_emp_id, sale_date) 
-                        VALUES (:cid, :pid, :amt, :pay, :ch, :note, :eid, :dt)
-                    """, {"cid": c_id, "pid": p_id, "amt": unit_price * qty, "pay": pay_method, "ch": channel, "note": note, "eid": e_id, "dt": datetime.now().date()})
-                    st.success("✅ บันทึกการขายเรียบร้อย!")
+        # 3. Cart Display
+        if st.session_state.cart:
+            st.subheader("📋 รายการในตระกร้า")
+            df_cart = pd.DataFrame(st.session_state.cart)
+            
+            # Display items with remove buttons
+            for i, item in enumerate(st.session_state.cart):
+                cols = st.columns([3, 1, 1, 1, 0.5])
+                cols[0].write(item['name'])
+                cols[1].write(f"{item['price']:,.2f}")
+                cols[2].write(f"x {item['qty']}")
+                cols[3].write(f"**{item['total']:,.2f}**")
+                if cols[4].button("❌", key=f"del_{i}"):
+                    st.session_state.cart.pop(i)
                     st.rerun()
+            
+            subtotal = sum(item['total'] for item in st.session_state.cart)
+            
+            st.divider()
+            
+            # 4. Checkout
+            cc1, cc2, cc3 = st.columns(3)
+            discount = cc1.number_input("💸 ส่วนลด (บาท)", min_value=0.0, value=0.0)
+            pay_method = cc2.selectbox("💳 วิธีชำระเงิน", ["โอนเงิน", "เงินสด"])
+            channel = cc3.radio("📡 ช่องทาง", ["ออนไลน์", "ออนไซต์"], horizontal=True)
+            
+            final_total = subtotal - discount
+            st.markdown(f"### ยอดรวมสุทธิ: :red[{final_total:,.2f}] บาท")
+            
+            if st.button("🏁 ยืนยันการสั่งซื้อและออกบิล", use_container_width=True, type="primary"):
+                if sel_cust != "-- เลือกรายชื่อลูกค้า --" and sel_emp != "-- เลือกพนักงาน --":
+                    # Generate Bill ID: B-YYYYMMDD-XXXX
+                    now = datetime.now()
+                    prefix = f"B-{now.strftime('%Y%m%d')}"
+                    last_bill = run_query("SELECT bill_id FROM bills WHERE bill_id LIKE :pref ORDER BY bill_id DESC LIMIT 1", {"pref": f"{prefix}%"})
+                    if not last_bill.empty:
+                        last_num = int(last_bill['bill_id'][0].split('-')[-1])
+                        new_bill_id = f"{prefix}-{str(last_num + 1).zfill(4)}"
+                    else:
+                        new_bill_id = f"{prefix}-0001"
+                    
+                    c_id = int(sel_cust.split(" | ")[0])
+                    e_id = int(df_e[df_e['disp'] == sel_emp]['emp_id'].values[0])
+                    
+                    # Save Bill header
+                    run_query("""
+                        INSERT INTO bills (bill_id, customer_id, seller_id, total_amount, discount, final_amount, payment_method)
+                        VALUES (:bid, :cid, :sid, :total, :disc, :final, :pay)
+                    """, {"bid": new_bill_id, "cid": c_id, "sid": e_id, "total": subtotal, "disc": discount, "final": final_total, "pay": pay_method})
+                    
+                    # Save Bill items
+                    for item in st.session_state.cart:
+                        run_query("""
+                            INSERT INTO bill_items (bill_id, product_id, product_name, qty, unit_price, subtotal)
+                            VALUES (:bid, :pid, :pname, :qty, :uprice, :sub)
+                        """, {"bid": new_bill_id, "pid": item['id'], "pname": item['name'], "qty": item['qty'], "uprice": item['price'], "sub": item['total']})
+                        
+                        # Legacy support: also save to sales_history for old dashboard/reports
+                        run_query("""
+                            INSERT INTO sales_history (customer_id, product_id, amount, payment_method, sale_channel, closed_by_emp_id, sale_date)
+                            VALUES (:cid, :pid, :amt, :pay, :ch, :eid, :dt)
+                        """, {"cid": c_id, "pid": item['id'], "amt": item['total'], "pay": pay_method, "ch": channel, "eid": e_id, "dt": now.date()})
+                    
+                    st.success(f"✅ บันทึกบิล {new_bill_id} สำเร็จ!")
+                    
+                    # --- Receipt Generation ---
+                    c_name = sel_cust.split(" | ")[1]
+                    s_name = sel_emp
+                    
+                    receipt_html = f"""
+                    <div style="font-family: 'Courier New', Courier, monospace; border: 1px solid #ccc; padding: 20px; width: 300px; margin: auto; background: white; color: black;" id="receipt">
+                        <h3 style="text-align: center; margin-bottom: 5px;">RECEIPT</h3>
+                        <p style="text-align: center; font-size: 12px; margin-top: 0;">CRM Smart Pro System</p>
+                        <hr>
+                        <p style="font-size: 14px;"><b>Bill ID:</b> {new_bill_id}<br>
+                        <b>Date:</b> {now.strftime('%d/%m/%Y %H:%M')}<br>
+                        <b>Customer:</b> {c_name}<br>
+                        <b>Seller:</b> {s_name}</p>
+                        <hr>
+                        <table style="width: 100%; font-size: 14px;">
+                    """
+                    for item in st.session_state.cart:
+                        receipt_html += f"<tr><td>{item['name']} x{item['qty']}</td><td style='text-align: right;'>{item['total']:,.2f}</td></tr>"
+                    
+                    receipt_html += f"""
+                        </table>
+                        <hr>
+                        <table style="width: 100%; font-size: 14px;">
+                            <tr><td>Subtotal:</td><td style='text-align: right;'>{subtotal:,.2f}</td></tr>
+                            <tr><td>Discount:</td><td style='text-align: right;'>-{discount:,.2f}</td></tr>
+                            <tr style='font-weight: bold;'><td>TOTAL:</td><td style='text-align: right;'>{final_total:,.2f}</td></tr>
+                        </table>
+                        <p style="font-size: 14px;"><b>Method:</b> {pay_method}</p>
+                        <hr>
+                        <p style="text-align: center; font-size: 12px;">Thank you for your business!</p>
+                    </div>
+                    <br>
+                    <script>
+                        function printDiv() {{
+                            var content = document.getElementById('receipt').outerHTML;
+                            var win = window.open('', '', 'height=500,width=500');
+                            win.document.write('<html><head><title>Print Receipt</title></head><body>');
+                            win.document.write(content);
+                            win.document.write('</body></html>');
+                            win.document.close();
+                            win.print();
+                        }}
+                    </script>
+                    """
+                    
+                    st.markdown(receipt_html, unsafe_allow_html=True)
+                    if st.button("🖨️ พิมพ์ใบเสร็จ (Print)"):
+                        st.write("กรุณากด Ctrl+P เพื่อพิมพ์หน้าจอนี้ (หรือส่งข้อมูลไปที่เครื่องพิมพ์)")
+
+                    st.session_state.cart = [] # Clear cart after success
+                    if st.button("🔄 เริ่มบันทึกบิลใหม่"):
+                        st.rerun()
+
                 else:
-                    st.error("⚠️ กรุณาเลือกข้อมูลให้ครบถ้วน (ลูกค้า, สินค้า, พนักงาน)")
+                    st.error("⚠️ กรุณาเลือกทั้งลูกค้าและพนักงาน")
+        else:
+            st.info("🛒 ตระกร้าว่างเปล่า: กรุณาเพิ่มสินค้าเพื่อเริ่มบันทึกการขาย")
 
 # --- 👥 จัดการลูกค้า ---
 if choice == "👥 จัดการลูกค้า":
@@ -262,6 +407,27 @@ if choice == "👥 จัดการลูกค้า":
                         e_idx = e_names.index(match['display_name'].values[0]) + 1
             
             emp_l = st.selectbox("พนักงานผู้ดูแล", ["-- ไม่ระบุ --"] + e_names, index=e_idx)
+            
+            st.divider()
+            st.write("📋 **ข้อมูลส่วนตัวเพิ่มเติม**")
+            g_opts = ["-- ระบุเพศ --", "ชาย", "หญิง", "อื่นๆ"]
+            g_idx = 0
+            if edit_mode and curr_data.get('gender') in g_opts:
+                g_idx = g_opts.index(curr_data.get('gender'))
+            gender = st.selectbox("เพศ", g_opts, index=g_idx)
+            
+            m_opts = ["-- สถานะภาพ --", "โสด", "แต่งงานแล้ว", "หย่าร้าง / หม้าย"]
+            m_idx = 0
+            if edit_mode and curr_data.get('marital_status') in m_opts:
+                m_idx = m_opts.index(curr_data.get('marital_status'))
+            marital = st.selectbox("สถานะภาพ", m_opts, index=m_idx)
+            
+            c_opts = ["-- ข้อมูลบุตร --", "ยังไม่มีบุตร", "มีบุตรแล้ว"]
+            c_idx = 0
+            if edit_mode and curr_data.get('has_children') in c_opts:
+                c_idx = c_opts.index(curr_data.get('has_children'))
+            children = st.selectbox("การมีบุตร", c_opts, index=c_idx)
+
             note = st.text_area("หมายเหตุเพิ่มเติม", value=curr_data.get('cust_note', "") or "")
 
         btn_label = "💾 บันทึกการแก้ไข" if edit_mode else "💾 ลงทะเบียนลูกค้าใหม่"
@@ -277,20 +443,23 @@ if choice == "👥 จัดการลูกค้า":
                     run_query("""
                         UPDATE customers SET 
                         full_name=:name, nickname=:nick, phone=:phone, line_id=:line, facebook=:fb, instagram=:ig, 
-                        address_detail=:addr, province=:prov, district=:dist, zipcode=:zip, cust_note=:note, assigned_sales_id=:eid
+                        address_detail=:addr, province=:prov, district=:dist, zipcode=:zip, cust_note=:note, 
+                        assigned_sales_id=:eid, gender=:gender, marital_status=:marital, has_children=:children
                         WHERE customer_id=:cid
                     """, {"name": name, "nick": nick, "phone": phone, "line": line, "fb": fb, "ig": ig, 
-                          "addr": addr_detail, "prov": sel_prov, "dist": sel_dist, "zip": zip_code, "note": note, "eid": e_id, "cid": edit_id})
+                          "addr": addr_detail, "prov": sel_prov, "dist": sel_dist, "zip": zip_code, "note": note, 
+                          "eid": e_id, "cid": edit_id, "gender": gender, "marital": marital, "children": children})
                     st.success(f"✅ อัปเดตข้อมูลคุณ {name} สำเร็จ!")
                 else:
                     check = run_query("SELECT COUNT(*) as cnt FROM customers WHERE full_name = :name", {"name": name})
                     if check['cnt'][0] == 0:
                         run_query("""
                             INSERT INTO customers 
-                            (full_name, nickname, phone, line_id, facebook, instagram, address_detail, province, district, zipcode, cust_note, assigned_sales_id) 
-                            VALUES (:name, :nick, :phone, :line, :fb, :ig, :addr, :prov, :dist, :zip, :note, :eid)
+                            (full_name, nickname, phone, line_id, facebook, instagram, address_detail, province, district, zipcode, cust_note, assigned_sales_id, gender, marital_status, has_children) 
+                            VALUES (:name, :nick, :phone, :line, :fb, :ig, :addr, :prov, :dist, :zip, :note, :eid, :gender, :marital, :children)
                         """, {"name": name, "nick": nick, "phone": phone, "line": line, "fb": fb, "ig": ig, 
-                              "addr": addr_detail, "prov": sel_prov, "dist": sel_dist, "zip": zip_code, "note": note, "eid": e_id})
+                              "addr": addr_detail, "prov": sel_prov, "dist": sel_dist, "zip": zip_code, "note": note, 
+                              "eid": e_id, "gender": gender, "marital": marital, "children": children})
                         st.success(f"✅ บันทึกคุณ {name} สำเร็จ!")
                     else:
                         st.error("❌ ชื่อนี้มีอยู่ในระบบแล้ว")
