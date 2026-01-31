@@ -133,6 +133,14 @@ with st.sidebar:
     st.button("👥 จัดการลูกค้า", on_click=set_menu, args=("👥 จัดการลูกค้า",), use_container_width=True)
     st.button("👔 จัดการพนักงาน", on_click=set_menu, args=("👔 จัดการพนักงาน",), use_container_width=True)
     st.button("📦 จัดการสินค้า", on_click=set_menu, args=("📦 จัดการสินค้า",), use_container_width=True)
+    
+    st.markdown("---")
+    st.subheader("📈 Marketing Tools")
+    st.button("🏆 ABC Analysis", on_click=set_menu, args=("🏆 ABC Analysis",), use_container_width=True)
+    st.button("💵 P&L Dashboard", on_click=set_menu, args=("💵 P&L Dashboard",), use_container_width=True)
+    st.button("🎯 Goal Tracker", on_click=set_menu, args=("🎯 Goal Tracker",), use_container_width=True)
+    
+    st.markdown("---")
     st.button("⚙️ ตั้งค่าระบบ", on_click=set_menu, args=("⚙️ ตั้งค่าระบบ",), use_container_width=True)
 
 choice = st.session_state.menu_option
@@ -195,6 +203,121 @@ if choice == "📊 Dashboard":
         
     else: 
         st.info("ยังไม่มีข้อมูลการขายในระบบ")
+
+# --- 🏆 ABC Analysis ---
+elif choice == "🏆 ABC Analysis":
+    st.header("🏆 วิเคราะห์ลำดับความสำคัญสินค้า (ABC Analysis)")
+    st.markdown("""
+        แบ่งกลุ่มสินค้าตามสัดส่วนรายได้ (**หลักการ 80/20**):
+        - **A (High Value)**: สินค้าทำเงินหลัก (สะสม 0-80%)
+        - **B (Medium Value)**: สินค้าทำเงินรอง (สะสม 81-95%)
+        - **C (Low Value)**: สินค้าทำเงินน้อย (สะสม 96-100%)
+    """)
+    
+    df_abc = run_query("""
+        SELECT p.product_name as "สินค้า", SUM(s.amount) as "ยอดขายรวม", cat.cat_name as "หมวดหมู่"
+        FROM sales_history s
+        JOIN products p ON s.product_id = p.product_id
+        LEFT JOIN categories cat ON p.cat_id = cat.cat_id
+        GROUP BY p.product_name, cat.cat_name
+        ORDER BY "ยอดขายรวม" DESC
+    """)
+    
+    if not df_abc.empty:
+        total_rev = df_abc['ยอดขายรวม'].sum()
+        df_abc['สัดส่วน (%)'] = (df_abc['ยอดขายรวม'] / total_rev * 100).round(2)
+        df_abc['% สะสม'] = df_abc['สัดส่วน (%)'].cumsum()
+        
+        def assign_abc(x):
+            if x <= 80: return "A"
+            elif x <= 95: return "B"
+            return "C"
+        
+        df_abc['Grade'] = df_abc['% สะสม'].apply(assign_abc)
+        
+        # Color Coding
+        def color_abc(val):
+            color = "#28a745" if val == "A" else "#ffc107" if val == "B" else "#dc3545"
+            return f'color: {color}; font-weight: bold'
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("สินค้ากลุ่ม A (ตัวทำเงิน)", f"{len(df_abc[df_abc['Grade']=='A'])} รายการ")
+        c2.metric("สินค้ากลุ่ม B (ปานกลาง)", f"{len(df_abc[df_abc['Grade']=='B'])} รายการ")
+        c3.metric("สินค้ากลุ่ม C (สินค้านิ่ง)", f"{len(df_abc[df_abc['Grade']=='C'])} รายการ")
+        
+        st.dataframe(df_abc.style.applymap(color_abc, subset=['Grade']), use_container_width=True, hide_index=True)
+    else:
+        st.info("ยังไม่มีข้อมูลเพียงพอสำหรับการวิเคราะห์")
+
+# --- 💵 P&L Dashboard ---
+elif choice == "💵 P&L Dashboard":
+    st.header("💵 รายงานสรุปกำไร-ขาดทุน (P&L)")
+    
+    # ดึงยอดขายและส่วนลดจากตาราง bills (ข้อมูลจริงจากระบบใหม่)
+    df_pl = run_query("""
+        SELECT bill_id, total_amount, discount, final_amount, bill_date
+        FROM bills
+    """)
+    
+    if not df_pl.empty:
+        df_pl['bill_date'] = pd.to_datetime(df_pl['bill_date']).dt.date
+        
+        # ตัวเลือกช่วงเวลา
+        st.subheader("📊 วิเคราะห์กระแสรายได้")
+        total_sales = df_pl['total_amount'].sum()
+        total_disc = df_pl['discount'].sum()
+        net_revenue = df_pl['final_amount'].sum()
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("ยอดขายเบื้องต้น (Gross)", f"฿{total_sales:,.2f}")
+        c2.metric("ส่วนลดที่ให้ลูกค้า", f"-฿{total_disc:,.2f}")
+        c3.metric("รายได้สุทธิ (Net)", f"฿{net_revenue:,.2f}", delta=f"-{total_disc/total_sales*100:.1f}% Discount")
+        
+        st.divider()
+        st.subheader("📝 รายละเอียดบิลรายวัน")
+        st.dataframe(df_pl.sort_values('bill_date', ascending=False), hide_index=True, use_container_width=True)
+    else:
+        st.info("ระบบ P&L จะเริ่มแสดงผลเมื่อมีการสั่งซื้อผ่านระบบ 'บันทึกการขาย' ใหม่ครับ")
+
+# --- 🎯 Goal Tracker ---
+elif choice == "🎯 Goal Tracker":
+    st.header("🎯 ระบบติดตามเป้าหมายการขาย (Goal Tracker)")
+    
+    # ตั้งค่าเป้าหมาย
+    with st.expander("⚙️ ตั้งค่าเป้าหมายประจำเดือน", expanded=False):
+        gl1, gl2, gl3 = st.columns(3)
+        target_low = gl1.number_input("เป้าหมายขั้นต่ำ (Low)", value=1000000.0, step=10000.0)
+        target_mid = gl2.number_input("เป้าหมายกลาง (Mid)", value=2500000.0, step=10000.0)
+        target_high = gl3.number_input("เป้าหมายสูงสุด (High)", value=5000000.0, step=10000.0)
+
+    # คำนวณยอดขายเดือนนี้
+    now = datetime.now()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    df_month = run_query("""
+        SELECT SUM(amount) as m_total FROM sales_history 
+        WHERE sale_date >= :start
+    """, {"start": month_start.date()})
+    
+    current_sales = df_month['m_total'][0] or 0.0
+    
+    # แสดง Progress Bar
+    st.subheader(f"📅 ยอดขายเดือน {now.strftime('%B %Y')}")
+    st.markdown(f"### มียอดขายแล้ว: :blue[{current_sales:,.2f}] บาท")
+    
+    # Progress towards targets
+    for name, target, color in [("🎯 Low Target", target_low, "orange"), ("🚀 Mid Target", target_mid, "blue"), ("🔥 High Target", target_high, "green")]:
+        progress = min(100.0, (current_sales / target * 100))
+        rem = max(0.0, target - current_sales)
+        
+        st.write(f"**{name}** (฿{target:,.0f})")
+        if rem > 0:
+            st.info(f"สะสมแล้ว {progress:.1f}% | ต้องทำเพิ่มอีก :red[{rem:,.2f}] บาท ถึงจะเข้าเป้า")
+        else:
+            st.success(f"✅ บรรลุเป้าหมาย {name} เรียบร้อย! (เกินเป้า {abs(rem):,.2f} บาท)")
+        st.progress(progress / 100)
+        st.write("")
+
 
 # --- 💰 บันทึกการขาย ---
 elif choice == "💰 บันทึกการขาย":
