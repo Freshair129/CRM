@@ -674,7 +674,7 @@ elif choice == "📊 Marketing Actual":
             st.markdown("### <div style='background-color: #3b82f6; color: white; padding: 5px; text-align: center; border-radius: 5px;'>Marketing Actual (Detail)</div>", unsafe_allow_html=True)
             
             # Detailed Channel Report
-            detail = summary.merge(df_act_chan, on=['cat_id', 'channel'], how='left', suffixes=('', '_c')).fillna(0)
+            detail = summary.merge(df_act_chan, on=['cat_id', 'channel'], how='left').fillna(0)
             # Register calculation (Simplified)
             df_act_leads = run_query("SELECT cat_id, channel, SUM(lead_count) as leads FROM daily_leads GROUP BY cat_id, channel")
             df_act_regs = run_query("SELECT cat_id, channel, SUM(reg_count) as regs FROM daily_registers GROUP BY cat_id, channel")
@@ -682,9 +682,9 @@ elif choice == "📊 Marketing Actual":
             detail = detail.merge(df_act_regs, on=['cat_id', 'channel'], how='left').fillna(0)
             
             detail['Target'] = total_high_target * (detail['team_weight']/100) * (detail['channel_weight']/100)
-            detail['DIFT'] = detail['actual_amount_c'] - detail['Target']
+            detail['DIFT'] = detail['actual_amount'] - detail['Target']
             
-            detail_disp = detail[['cat_name', 'team_name', 'channel', 'channel_weight', 'Target', 'lead_forecast', 'leads', 'register_target', 'regs', 'actual_amount_c', 'DIFT']]
+            detail_disp = detail[['cat_name', 'team_name', 'channel', 'channel_weight', 'Target', 'lead_forecast', 'leads', 'register_target', 'regs', 'actual_amount', 'DIFT']]
             detail_disp.columns = ['Type', 'Team', 'ช่องทาง', '%', 'Target Sales', 'Lead Forecast', 'Actual Lead', 'Reg Target', 'Actual Reg', 'Actual Sale', 'DIFT']
             
             def color_dift(val):
