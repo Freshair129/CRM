@@ -1849,182 +1849,341 @@ elif choice == "🎯 Customer 360":
     st.header("🎯 Customer 360 Profile")
     st.caption("ดูข้อมูลลูกค้าแบบครบ 360 องศา: ประวัติซื้อ, การติดต่อ, Feedback, และ Tags")
     
-    # Customer Selector
-    df_cust = run_query("SELECT customer_id, full_name, nickname, phone FROM customers ORDER BY full_name")
+    # Demo Mode Toggle
+    demo_mode = st.toggle("🎬 **Demo Mode** (แสดงตัวอย่างข้อมูลสมบูรณ์สำหรับ Presentation)", value=False)
     
-    if df_cust.empty:
-        st.warning("ไม่พบข้อมูลลูกค้า")
+    if demo_mode:
+        # ========== DEMO SHOWCASE ==========
+        st.divider()
+        st.markdown("## 🎬 Demo: ตัวอย่างข้อมูลลูกค้าแบบสมบูรณ์")
+        st.info("💡 **นี่คือตัวอย่างข้อมูลที่ระบบจะเก็บได้เมื่อใช้งานจริง พร้อม Insights และ Actions ที่เราสามารถทำได้**")
+        
+        # Demo Customer Header
+        st.markdown("---")
+        st.markdown("## 👤 คุณวิภา รักเรียน")
+        col1, col2, col3 = st.columns(3)
+        col1.markdown("📞 **โทร:** 081-234-5678")
+        col2.markdown("📧 **Email:** wipa@email.com")
+        col3.markdown("🏷️ **Segment:** 👑 VIP Customer")
+        
+        # Tags Display
+        tags_html = """
+        <div style='margin:10px 0;'>
+        <span style='background:#6366F1;color:white;padding:6px 14px;border-radius:20px;margin:3px;display:inline-block;font-size:14px;'>👑 VIP</span>
+        <span style='background:#10B981;color:white;padding:6px 14px;border-radius:20px;margin:3px;display:inline-block;font-size:14px;'>🎯 สนใจคอร์ส Dance</span>
+        <span style='background:#F59E0B;color:white;padding:6px 14px;border-radius:20px;margin:3px;display:inline-block;font-size:14px;'>💰 งบสูง</span>
+        <span style='background:#8B5CF6;color:white;padding:6px 14px;border-radius:20px;margin:3px;display:inline-block;font-size:14px;'>👨‍👩‍👧 ผู้ปกครอง</span>
+        <span style='background:#EC4899;color:white;padding:6px 14px;border-radius:20px;margin:3px;display:inline-block;font-size:14px;'>⭐ Rating 5 ดาว</span>
+        </div>
+        """
+        st.markdown(tags_html, unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # Key Metrics
+        st.subheader("📊 ตัวชี้วัดสำคัญ")
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("💰 CLV", "฿185,000", "+฿45,000 ปีนี้")
+        m2.metric("🧾 จำนวนบิล", "12 บิล")
+        m3.metric("📊 เฉลี่ย/บิล", "฿15,417")
+        m4.metric("⭐ Rating", "4.8/5")
+        m5.metric("📅 เป็นลูกค้า", "4 ปี")
+        
+        st.divider()
+        
+        # Purchase History
+        st.subheader("🧾 ประวัติการซื้อ (ล่าสุด 5 รายการ)")
+        purchases = pd.DataFrame({
+            "วันที่": ["2026-01-15", "2025-11-20", "2025-08-10", "2025-05-05", "2025-02-14"],
+            "บิล": ["B-20260115-0001", "B-20251120-0003", "B-20250810-0002", "B-20250505-0001", "B-20250214-0005"],
+            "รายการ": ["V-School Dance Pro (1 ปี)", "V-School Music Intensive", "Workshop พิเศษ", "V-School Dance Basic", "Package Valentine Special"],
+            "ยอด": [35000, 28000, 5000, 25000, 42000],
+            "ช่องทาง": ["ลูกค้าเก่า/Re-sale", "Line OA", "Openhouse", "Facebook Ads", "โปรโมชั่น"]
+        })
+        st.dataframe(purchases, hide_index=True, use_container_width=True,
+                     column_config={"ยอด": st.column_config.NumberColumn(format="฿%,.0f")})
+        
+        # Insight Box
+        st.success("💡 **Insight:** คุณวิภาซื้อซ้ำทุก 3 เดือน และชอบคอร์ส Dance → **ควรเสนอ V-School Dance Master เมื่อใกล้หมดอายุ**")
+        
+        st.divider()
+        
+        # Contact History
+        st.subheader("📞 ประวัติการติดต่อ")
+        contacts = pd.DataFrame({
+            "วันที่": ["2026-01-28", "2026-01-20", "2025-12-15", "2025-11-10", "2025-09-05"],
+            "ประเภท": ["📞 โทรศัพท์", "💬 LINE", "📞 โทรศัพท์", "🏢 พบหน้า", "💬 LINE"],
+            "บันทึก": [
+                "โทรแจ้งโปรใหม่ ลูกค้าสนใจ Dance Pro รอลูกตัดสินใจ",
+                "ส่ง LINE แจ้งคอร์สใหม่ ลูกค้าอ่านแล้ว ตอบขอบคุณ",
+                "โทรอวยพรปีใหม่ ลูกค้าดีใจมาก พูดคุยเรื่องลูก",
+                "พบที่งาน Openhouse ลูกค้าพาเพื่อนมา 2 คน",
+                "ถามเรื่องตารางเรียน ตอบแล้ว"
+            ],
+            "พนักงาน": ["พี่หนิง", "พี่หนิง", "พี่บอส", "พี่หนิง", "พี่จอย"],
+            "นัดติดตาม": ["2026-02-05", "-", "-", "-", "-"]
+        })
+        st.dataframe(contacts, hide_index=True, use_container_width=True)
+        
+        st.warning("⏰ **Follow-up Alert:** นัดโทรติดตามวันที่ 5 ก.พ. 2026")
+        
+        st.divider()
+        
+        # Feedback History
+        st.subheader("⭐ Feedback ที่ได้รับ")
+        feedback = pd.DataFrame({
+            "วันที่": ["2026-01-16", "2025-11-21", "2025-08-11"],
+            "Rating": ["⭐⭐⭐⭐⭐ (5)", "⭐⭐⭐⭐⭐ (5)", "⭐⭐⭐⭐ (4)"],
+            "Comment": [
+                "ครูสอนดีมาก ลูกพัฒนาเร็ว ชอบบรรยากาศ",
+                "คอร์สคุ้มค่า บริการดี พนักงานเป็นกันเอง",
+                "ดีมากค่ะ แต่ที่จอดรถหายาก"
+            ]
+        })
+        st.dataframe(feedback, hide_index=True, use_container_width=True)
+        
+        st.info("💡 **Insight จาก Feedback:** ลูกค้าชมเรื่องครู/บริการ แต่มีปัญหาที่จอดรถ → **แจ้งทีม Facility**")
+        
+        st.divider()
+        
+        # ========== ACTIONABLE INSIGHTS ==========
+        st.markdown("## 🎯 สิ่งที่เราทำได้จากข้อมูลนี้ (Actionable Insights)")
+        
+        st.markdown("""
+        <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 15px; color: white; margin: 10px 0;'>
+        <h3 style='margin:0;'>🔮 สรุป Insights ของลูกค้าคนนี้</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        insights_data = [
+            ("🎯 **ซื้อซ้ำ**", "ลูกค้าซื้อซ้ำทุก ~3 เดือน", "ตั้ง Reminder โทรก่อนหมดคอร์ส 1 เดือน", "🟢 ทำได้เลย"),
+            ("💰 **Upsell**", "ชอบ Dance + งบสูง", "เสนอ Dance Master (฿50,000)", "🟢 โอกาสสูง"),
+            ("👥 **Referral**", "เคยพาเพื่อนมางาน Openhouse", "เสนอ Referral Program ส่วนลด 10%", "🟡 ลองเสนอ"),
+            ("⚠️ **Pain Point**", "ที่จอดรถหายาก", "แจ้ง Facility / เสนอ Valet", "🔴 แก้ไขระบบ"),
+            ("📅 **Timing**", "ซื้อช่วง Valentine/ปีใหม่", "ส่งโปรโมชั่นพิเศษช่วงเทศกาล", "🟢 วางแผนล่วงหน้า")
+        ]
+        
+        insights_df = pd.DataFrame(insights_data, columns=["หมวด", "สิ่งที่พบ", "Action แนะนำ", "ความเป็นไปได้"])
+        st.dataframe(insights_df, hide_index=True, use_container_width=True)
+        
+        st.divider()
+        
+        # Next Best Actions
+        st.subheader("🚀 Next Best Actions (สิ่งที่ควรทำตอนนี้)")
+        
+        nba1, nba2 = st.columns(2)
+        with nba1:
+            st.markdown("""
+            <div style='background:#10B981;padding:15px;border-radius:10px;color:white;'>
+            <h4 style='margin:0;'>✅ Action 1: โทรติดตาม</h4>
+            <p>วันที่ 5 ก.พ. 2026 (อีก 3 วัน)</p>
+            <p>เสนอ V-School Dance Master ราคา ฿45,000 (ลด 10%)</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with nba2:
+            st.markdown("""
+            <div style='background:#6366F1;padding:15px;border-radius:10px;color:white;'>
+            <h4 style='margin:0;'>🎁 Action 2: ส่งของขวัญวันเกิด</h4>
+            <p>วันเกิด: 20 ก.พ. (อีก 18 วัน)</p>
+            <p>ส่งการ์ด + Voucher ส่วนลด 15%</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # Value Summary
+        st.markdown("""
+        ### 💎 สรุปคุณค่าของการเก็บข้อมูลครบ 360°
+        
+        | เก็บข้อมูล | ได้ Insight | ทำ Action | ผลลัพธ์ที่คาดหวัง |
+        |-----------|------------|----------|-----------------|
+        | 🧾 ประวัติซื้อ | รู้ Pattern การซื้อ | ติดต่อในเวลาที่เหมาะ | **เพิ่ม Conversion 25%** |
+        | 📞 บันทึกติดต่อ | รู้ว่าคุยอะไรไปแล้ว | ไม่ซ้ำซ้อน ต่อเนื่อง | **ลด Churn 15%** |
+        | ⭐ Feedback | รู้ Pain Points | แก้ปัญหาตรงจุด | **เพิ่ม NPS 20%** |
+        | 🏷️ Tags | รู้ความสนใจ | Personalize โปร | **เพิ่มยอดขาย 30%** |
+        """)
+        
+        st.success("🎯 **Bottom Line:** ข้อมูล 360° ช่วยให้เราเปลี่ยนจาก 'ขายแบบเดา' เป็น 'ขายแบบรู้ใจลูกค้า'")
+        
     else:
-        cust_opts = [f"{r['customer_id']} | {r['full_name']} ({r['nickname'] or '-'})" for _, r in df_cust.iterrows()]
-        sel_cust = st.selectbox("👤 เลือกลูกค้าที่ต้องการดูข้อมูล", cust_opts)
-        sel_cust_id = int(sel_cust.split(" | ")[0])
-        cust_info = df_cust[df_cust['customer_id'] == sel_cust_id].iloc[0]
+        # ========== REAL DATA MODE ==========
+        # Customer Selector
+        df_cust = run_query("SELECT customer_id, full_name, nickname, phone FROM customers ORDER BY full_name")
         
-        # Customer Header
-        st.markdown(f"## 👤 {cust_info['full_name']}")
-        st.caption(f"📞 {cust_info['phone'] or 'ไม่มีเบอร์'}")
-        
-        # Tabs for different sections
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 สรุปภาพรวม", "🧾 ประวัติซื้อ", "📞 บันทึกการติดต่อ", "⭐ Feedback", "🏷️ Tags"])
-        
-        with tab1:
-            # --- Overview ---
-            st.subheader("📊 สรุปพฤติกรรมลูกค้า")
+        if df_cust.empty:
+            st.warning("ไม่พบข้อมูลลูกค้า")
+        else:
+            cust_opts = [f"{r['customer_id']} | {r['full_name']} ({r['nickname'] or '-'})" for _, r in df_cust.iterrows()]
+            sel_cust = st.selectbox("👤 เลือกลูกค้าที่ต้องการดูข้อมูล", cust_opts)
+            sel_cust_id = int(sel_cust.split(" | ")[0])
+            cust_info = df_cust[df_cust['customer_id'] == sel_cust_id].iloc[0]
             
-            # Calculate CLV
-            clv_data = run_query("""
-                SELECT COUNT(*) as total_bills, COALESCE(SUM(final_amount), 0) as total_spent,
-                       MIN(sale_date) as first_purchase, MAX(sale_date) as last_purchase
-                FROM bills WHERE customer_id = :cid
-            """, {"cid": sel_cust_id})
+            # Customer Header
+            st.markdown(f"## 👤 {cust_info['full_name']}")
+            st.caption(f"📞 {cust_info['phone'] or 'ไม่มีเบอร์'}")
             
-            if not clv_data.empty:
-                total_spent = clv_data['total_spent'][0] or 0
-                total_bills = clv_data['total_bills'][0] or 0
-                avg_ticket = total_spent / total_bills if total_bills > 0 else 0
+            # Tabs for different sections
+            tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 สรุปภาพรวม", "🧾 ประวัติซื้อ", "📞 บันทึกการติดต่อ", "⭐ Feedback", "🏷️ Tags"])
+            
+            with tab1:
+                # --- Overview ---
+                st.subheader("📊 สรุปพฤติกรรมลูกค้า")
                 
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("💰 CLV (ยอดซื้อรวม)", f"฿{total_spent:,.0f}")
-                m2.metric("🧾 จำนวนบิล", f"{total_bills} บิล")
-                m3.metric("📊 ยอดเฉลี่ย/บิล", f"฿{avg_ticket:,.0f}")
-                m4.metric("📅 ซื้อครั้งแรก", str(clv_data['first_purchase'][0])[:10] if clv_data['first_purchase'][0] else "-")
-            
-            st.divider()
-            
-            # Tags Display
-            st.subheader("🏷️ Tags")
-            df_tags = run_query("SELECT tag_name FROM customer_tags WHERE customer_id = :cid", {"cid": sel_cust_id})
-            if not df_tags.empty:
-                tag_html = " ".join([f"<span style='background:#6366F1;color:white;padding:4px 12px;border-radius:20px;margin:2px;display:inline-block;'>{t}</span>" for t in df_tags['tag_name']])
-                st.markdown(tag_html, unsafe_allow_html=True)
-            else:
-                st.caption("ยังไม่มี Tags → ไปเพิ่มที่แท็บ 'Tags'")
-        
-        with tab2:
-            # --- Purchase History ---
-            st.subheader("🧾 ประวัติการซื้อ")
-            df_purchases = run_query("""
-                SELECT b.bill_id, b.sale_date, b.final_amount, b.payment_method, b.sale_channel
-                FROM bills b WHERE b.customer_id = :cid
-                ORDER BY b.sale_date DESC
-            """, {"cid": sel_cust_id})
-            
-            if not df_purchases.empty:
-                st.dataframe(df_purchases, hide_index=True, use_container_width=True,
-                             column_config={"final_amount": st.column_config.NumberColumn(format="฿%,.0f")})
-            else:
-                st.info("ยังไม่มีประวัติการซื้อ")
-        
-        with tab3:
-            # --- Contact Logs ---
-            st.subheader("📞 บันทึกการติดต่อ")
-            
-            # Add New Contact Log
-            with st.form("add_contact_log", clear_on_submit=True):
-                st.markdown("**➕ เพิ่มบันทึกใหม่**")
-                c1, c2 = st.columns(2)
-                contact_type = c1.selectbox("ประเภท", ["📞 โทรศัพท์", "💬 LINE", "📧 Email", "🏢 พบหน้า", "📱 อื่นๆ"])
-                df_emp = run_query("SELECT emp_id, emp_nickname FROM employees")
-                emp_opts = [f"{r['emp_id']} | {r['emp_nickname']}" for _, r in df_emp.iterrows()] if not df_emp.empty else []
-                sel_emp_log = c2.selectbox("พนักงาน", emp_opts) if emp_opts else None
+                # Calculate CLV
+                clv_data = run_query("""
+                    SELECT COUNT(*) as total_bills, COALESCE(SUM(final_amount), 0) as total_spent,
+                           MIN(sale_date) as first_purchase, MAX(sale_date) as last_purchase
+                    FROM bills WHERE customer_id = :cid
+                """, {"cid": sel_cust_id})
                 
-                notes = st.text_area("บันทึก/หมายเหตุ", placeholder="บันทึกสิ่งที่คุยกับลูกค้า...")
-                follow_up = st.date_input("วันนัดติดตาม (ถ้ามี)", value=None)
+                if not clv_data.empty:
+                    total_spent = clv_data['total_spent'][0] or 0
+                    total_bills = clv_data['total_bills'][0] or 0
+                    avg_ticket = total_spent / total_bills if total_bills > 0 else 0
+                    
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("💰 CLV (ยอดซื้อรวม)", f"฿{total_spent:,.0f}")
+                    m2.metric("🧾 จำนวนบิล", f"{total_bills} บิล")
+                    m3.metric("📊 ยอดเฉลี่ย/บิล", f"฿{avg_ticket:,.0f}")
+                    m4.metric("📅 ซื้อครั้งแรก", str(clv_data['first_purchase'][0])[:10] if clv_data['first_purchase'][0] else "-")
                 
-                if st.form_submit_button("💾 บันทึก", type="primary", use_container_width=True):
-                    emp_id = int(sel_emp_log.split(" | ")[0]) if sel_emp_log else None
-                    run_query("""
-                        INSERT INTO contact_logs (customer_id, contact_type, notes, emp_id, follow_up_date)
-                        VALUES (:cid, :type, :notes, :eid, :fup)
-                    """, {"cid": sel_cust_id, "type": contact_type, "notes": notes, "eid": emp_id, "fup": follow_up if follow_up else None})
-                    st.success("✅ บันทึกแล้ว!")
-                    st.rerun()
-            
-            st.divider()
-            
-            # Display Logs
-            df_logs = run_query("""
-                SELECT cl.contact_type, cl.contact_date, cl.notes, e.emp_nickname, cl.follow_up_date
-                FROM contact_logs cl
-                LEFT JOIN employees e ON cl.emp_id = e.emp_id
-                WHERE cl.customer_id = :cid
-                ORDER BY cl.contact_date DESC
-            """, {"cid": sel_cust_id})
-            
-            if not df_logs.empty:
-                st.dataframe(df_logs, hide_index=True, use_container_width=True)
-            else:
-                st.info("ยังไม่มีบันทึกการติดต่อ")
-        
-        with tab4:
-            # --- Feedback ---
-            st.subheader("⭐ Feedback/Rating")
-            
-            # Add Feedback
-            with st.form("add_feedback", clear_on_submit=True):
-                st.markdown("**➕ เพิ่ม Feedback**")
-                rating = st.slider("⭐ Rating", 1, 5, 5)
-                comment = st.text_area("💬 Comment", placeholder="ความคิดเห็นของลูกค้า...")
+                st.divider()
                 
-                if st.form_submit_button("💾 บันทึก Feedback", type="primary", use_container_width=True):
-                    run_query("""
-                        INSERT INTO customer_feedback (customer_id, rating, comment)
-                        VALUES (:cid, :rate, :com)
-                    """, {"cid": sel_cust_id, "rate": rating, "com": comment})
-                    st.success("✅ บันทึกแล้ว!")
-                    st.rerun()
+                # Tags Display
+                st.subheader("🏷️ Tags")
+                df_tags = run_query("SELECT tag_name FROM customer_tags WHERE customer_id = :cid", {"cid": sel_cust_id})
+                if not df_tags.empty:
+                    tag_html = " ".join([f"<span style='background:#6366F1;color:white;padding:4px 12px;border-radius:20px;margin:2px;display:inline-block;'>{t}</span>" for t in df_tags['tag_name']])
+                    st.markdown(tag_html, unsafe_allow_html=True)
+                else:
+                    st.caption("ยังไม่มี Tags → ไปเพิ่มที่แท็บ 'Tags'")
             
-            st.divider()
+            with tab2:
+                # --- Purchase History ---
+                st.subheader("🧾 ประวัติการซื้อ")
+                df_purchases = run_query("""
+                    SELECT b.bill_id, b.sale_date, b.final_amount, b.payment_method, b.sale_channel
+                    FROM bills b WHERE b.customer_id = :cid
+                    ORDER BY b.sale_date DESC
+                """, {"cid": sel_cust_id})
+                
+                if not df_purchases.empty:
+                    st.dataframe(df_purchases, hide_index=True, use_container_width=True,
+                                 column_config={"final_amount": st.column_config.NumberColumn(format="฿%,.0f")})
+                else:
+                    st.info("ยังไม่มีประวัติการซื้อ")
             
-            # Display Feedback
-            df_fb = run_query("""
-                SELECT rating, comment, created_at
-                FROM customer_feedback
-                WHERE customer_id = :cid
-                ORDER BY created_at DESC
-            """, {"cid": sel_cust_id})
-            
-            if not df_fb.empty:
-                avg_rating = df_fb['rating'].mean()
-                st.metric("⭐ Rating เฉลี่ย", f"{avg_rating:.1f}/5")
-                st.dataframe(df_fb, hide_index=True, use_container_width=True)
-            else:
-                st.info("ยังไม่มี Feedback")
-        
-        with tab5:
-            # --- Tags ---
-            st.subheader("🏷️ Customer Tags")
-            
-            # Show current tags
-            df_tags = run_query("SELECT tag_id, tag_name FROM customer_tags WHERE customer_id = :cid", {"cid": sel_cust_id})
-            
-            if not df_tags.empty:
-                st.markdown("**Tags ปัจจุบัน:**")
-                for _, tag in df_tags.iterrows():
-                    c1, c2 = st.columns([4, 1])
-                    c1.markdown(f"🏷️ {tag['tag_name']}")
-                    if c2.button("❌", key=f"del_tag_{tag['tag_id']}"):
-                        run_query("DELETE FROM customer_tags WHERE tag_id = :tid", {"tid": tag['tag_id']})
+            with tab3:
+                # --- Contact Logs ---
+                st.subheader("📞 บันทึกการติดต่อ")
+                
+                # Add New Contact Log
+                with st.form("add_contact_log", clear_on_submit=True):
+                    st.markdown("**➕ เพิ่มบันทึกใหม่**")
+                    c1, c2 = st.columns(2)
+                    contact_type = c1.selectbox("ประเภท", ["📞 โทรศัพท์", "💬 LINE", "📧 Email", "🏢 พบหน้า", "📱 อื่นๆ"])
+                    df_emp = run_query("SELECT emp_id, emp_nickname FROM employees")
+                    emp_opts = [f"{r['emp_id']} | {r['emp_nickname']}" for _, r in df_emp.iterrows()] if not df_emp.empty else []
+                    sel_emp_log = c2.selectbox("พนักงาน", emp_opts) if emp_opts else None
+                    
+                    notes = st.text_area("บันทึก/หมายเหตุ", placeholder="บันทึกสิ่งที่คุยกับลูกค้า...")
+                    follow_up = st.date_input("วันนัดติดตาม (ถ้ามี)", value=None)
+                    
+                    if st.form_submit_button("💾 บันทึก", type="primary", use_container_width=True):
+                        emp_id = int(sel_emp_log.split(" | ")[0]) if sel_emp_log else None
+                        run_query("""
+                            INSERT INTO contact_logs (customer_id, contact_type, notes, emp_id, follow_up_date)
+                            VALUES (:cid, :type, :notes, :eid, :fup)
+                        """, {"cid": sel_cust_id, "type": contact_type, "notes": notes, "eid": emp_id, "fup": follow_up if follow_up else None})
+                        st.success("✅ บันทึกแล้ว!")
                         st.rerun()
+                
+                st.divider()
+                
+                # Display Logs
+                df_logs = run_query("""
+                    SELECT cl.contact_type, cl.contact_date, cl.notes, e.emp_nickname, cl.follow_up_date
+                    FROM contact_logs cl
+                    LEFT JOIN employees e ON cl.emp_id = e.emp_id
+                    WHERE cl.customer_id = :cid
+                    ORDER BY cl.contact_date DESC
+                """, {"cid": sel_cust_id})
+                
+                if not df_logs.empty:
+                    st.dataframe(df_logs, hide_index=True, use_container_width=True)
+                else:
+                    st.info("ยังไม่มีบันทึกการติดต่อ")
             
-            st.divider()
+            with tab4:
+                # --- Feedback ---
+                st.subheader("⭐ Feedback/Rating")
+                
+                # Add Feedback
+                with st.form("add_feedback", clear_on_submit=True):
+                    st.markdown("**➕ เพิ่ม Feedback**")
+                    rating = st.slider("⭐ Rating", 1, 5, 5)
+                    comment = st.text_area("💬 Comment", placeholder="ความคิดเห็นของลูกค้า...")
+                    
+                    if st.form_submit_button("💾 บันทึก Feedback", type="primary", use_container_width=True):
+                        run_query("""
+                            INSERT INTO customer_feedback (customer_id, rating, comment)
+                            VALUES (:cid, :rate, :com)
+                        """, {"cid": sel_cust_id, "rate": rating, "com": comment})
+                        st.success("✅ บันทึกแล้ว!")
+                        st.rerun()
+                
+                st.divider()
+                
+                # Display Feedback
+                df_fb = run_query("""
+                    SELECT rating, comment, created_at
+                    FROM customer_feedback
+                    WHERE customer_id = :cid
+                    ORDER BY created_at DESC
+                """, {"cid": sel_cust_id})
+                
+                if not df_fb.empty:
+                    avg_rating = df_fb['rating'].mean()
+                    st.metric("⭐ Rating เฉลี่ย", f"{avg_rating:.1f}/5")
+                    st.dataframe(df_fb, hide_index=True, use_container_width=True)
+                else:
+                    st.info("ยังไม่มี Feedback")
             
-            # Add New Tag
-            st.markdown("**➕ เพิ่ม Tag ใหม่**")
-            suggested_tags = ["👑 VIP", "🔄 ลูกค้าประจำ", "🆕 ลูกค้าใหม่", "⚠️ เสี่ยงหาย", "🎯 สนใจคอร์ส Dance", 
-                             "🎵 สนใจคอร์ส Music", "🎨 สนใจคอร์ส Art", "💰 งบสูง", "💸 รอโปรโมชั่น", "👨‍👩‍👧 ผู้ปกครอง"]
-            
-            c1, c2 = st.columns([3, 1])
-            new_tag = c1.selectbox("เลือก Tag", ["-- เลือกหรือพิมพ์เอง --"] + suggested_tags)
-            custom_tag = c1.text_input("หรือพิมพ์ Tag เอง", placeholder="เช่น: ชอบเรียนวันเสาร์")
-            
-            if c2.button("➕ เพิ่ม Tag", use_container_width=True):
-                tag_to_add = custom_tag if custom_tag.strip() else (new_tag if new_tag != "-- เลือกหรือพิมพ์เอง --" else None)
-                if tag_to_add:
-                    run_query("INSERT INTO customer_tags (customer_id, tag_name) VALUES (:cid, :tag)", 
-                             {"cid": sel_cust_id, "tag": tag_to_add})
-                    st.success(f"✅ เพิ่ม Tag '{tag_to_add}' แล้ว!")
-                    st.rerun()
+            with tab5:
+                # --- Tags ---
+                st.subheader("🏷️ Customer Tags")
+                
+                # Show current tags
+                df_tags = run_query("SELECT tag_id, tag_name FROM customer_tags WHERE customer_id = :cid", {"cid": sel_cust_id})
+                
+                if not df_tags.empty:
+                    st.markdown("**Tags ปัจจุบัน:**")
+                    for _, tag in df_tags.iterrows():
+                        c1, c2 = st.columns([4, 1])
+                        c1.markdown(f"🏷️ {tag['tag_name']}")
+                        if c2.button("❌", key=f"del_tag_{tag['tag_id']}"):
+                            run_query("DELETE FROM customer_tags WHERE tag_id = :tid", {"tid": tag['tag_id']})
+                            st.rerun()
+                
+                st.divider()
+                
+                # Add New Tag
+                st.markdown("**➕ เพิ่ม Tag ใหม่**")
+                suggested_tags = ["👑 VIP", "🔄 ลูกค้าประจำ", "🆕 ลูกค้าใหม่", "⚠️ เสี่ยงหาย", "🎯 สนใจคอร์ส Dance", 
+                                 "🎵 สนใจคอร์ส Music", "🎨 สนใจคอร์ส Art", "💰 งบสูง", "💸 รอโปรโมชั่น", "👨‍👩‍👧 ผู้ปกครอง"]
+                
+                c1, c2 = st.columns([3, 1])
+                new_tag = c1.selectbox("เลือก Tag", ["-- เลือกหรือพิมพ์เอง --"] + suggested_tags)
+                custom_tag = c1.text_input("หรือพิมพ์ Tag เอง", placeholder="เช่น: ชอบเรียนวันเสาร์")
+                
+                if c2.button("➕ เพิ่ม Tag", use_container_width=True):
+                    tag_to_add = custom_tag if custom_tag.strip() else (new_tag if new_tag != "-- เลือกหรือพิมพ์เอง --" else None)
+                    if tag_to_add:
+                        run_query("INSERT INTO customer_tags (customer_id, tag_name) VALUES (:cid, :tag)", 
+                                 {"cid": sel_cust_id, "tag": tag_to_add})
+                        st.success(f"✅ เพิ่ม Tag '{tag_to_add}' แล้ว!")
+                        st.rerun()
 
 
 # --- 💸 ขอรีฟันเงิน (Sales) ---
