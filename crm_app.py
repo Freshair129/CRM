@@ -175,6 +175,19 @@ def init_db():
                 buy_date DATE DEFAULT CURRENT_DATE,
                 expiry_date DATE,
                 status TEXT DEFAULT 'Available'
+            )''',
+            '''CREATE TABLE IF NOT EXISTS refund_requests (
+                request_id SERIAL PRIMARY KEY,
+                bill_id TEXT,
+                customer_id INTEGER,
+                requested_by INTEGER,
+                refund_amount REAL,
+                reason TEXT,
+                status TEXT DEFAULT 'pending',
+                manager_note TEXT,
+                approved_by INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP
             )'''
         ]
         for q in queries:
@@ -361,6 +374,11 @@ with st.sidebar:
     st.button("📅 Event Calendar", on_click=set_menu, args=("📅 Event Calendar",), use_container_width=True)
     
     st.markdown("---")
+    st.subheader("💸 Refund & Approval")
+    st.button("💸 ขอรีฟันเงิน", on_click=set_menu, args=("💸 ขอรีฟันเงิน",), use_container_width=True)
+    st.button("✅ อนุมัติรีฟัน", on_click=set_menu, args=("✅ อนุมัติรีฟัน",), use_container_width=True)
+    
+    st.markdown("---")
     st.button("⚙️ ตั้งค่าระบบ", on_click=set_menu, args=("⚙️ ตั้งค่าระบบ",), use_container_width=True)
 
 choice = st.session_state.menu_option
@@ -395,6 +413,12 @@ if choice == "📊 Dashboard":
     # --- Calculations ---
     now = datetime.now()
     today = now.date()
+    
+    # ⚠️ Pending Refund Notification
+    pending_refunds = run_query("SELECT COUNT(*) as cnt FROM refund_requests WHERE status = 'pending'")
+    if not pending_refunds.empty and pending_refunds['cnt'][0] > 0:
+        cnt = pending_refunds['cnt'][0]
+        st.warning(f"⚠️ **มีคำขอรีฟันรออนุมัติ {cnt} รายการ** → [ไปหน้าอนุมัติ](#) (กดเมนู '✅ อนุมัติรีฟัน')")
     
     # Revenue Metrcis
     sales_today = df_bills[df_bills['date'] == today]['final_amount'].sum() if not df_bills.empty else 0
@@ -1634,3 +1658,166 @@ elif choice == "📅 Event Calendar":
     })
     st.dataframe(past_events, hide_index=True, use_container_width=True,
                  column_config={"ยอดขาย": st.column_config.NumberColumn(format="฿%,.0f")})
+
+
+# --- 💸 ขอรีฟันเงิน (Sales) ---
+elif choice == "💸 ขอรีฟันเงิน":
+    st.header("💸 ขอรีฟันเงินลูกค้า")
+    st.caption("Sales สามารถส่งเรื่องขอรีฟันพร้อมรายงานเพื่อให้ผู้จัดการอนุมัติ")
+    
+    # Fetch data
+    df_bills = run_query("""
+        SELECT b.bill_id, b.sale_date, c.full_name, b.final_amount 
+        FROM bills b
+        LEFT JOIN customers c ON b.customer_id = c.customer_id
+        ORDER BY b.sale_date DESC
+        LIMIT 100
+    """)
+    df_emp = run_query("SELECT emp_id, emp_nickname FROM employees")
+    
+    if df_bills.empty:
+        st.warning("ไม่พบข้อมูลบิล")
+    else:
+        with st.form("refund_request_form"):
+            st.subheader("📝 ฟอร์มขอรีฟัน")
+            
+            # Bill Selection
+            bill_opts = [f"{r['bill_id']} | {r['full_name']} | ฿{r['final_amount']:,.0f}" for _, r in df_bills.iterrows()]
+            sel_bill = st.selectbox("🧾 เลือกบิลที่ต้องการขอรีฟัน", bill_opts)
+            
+            # Extract info
+            sel_bill_id = sel_bill.split(" | ")[0]
+            bill_info = df_bills[df_bills['bill_id'] == sel_bill_id].iloc[0]
+            
+            c1, c2 = st.columns(2)
+            refund_amt = c1.number_input("💰 จำนวนเงินที่ขอรีฟัน (บาท)", 
+                                          min_value=0.0, 
+                                          max_value=float(bill_info['final_amount']),
+                                          value=float(bill_info['final_amount']))
+            
+            # Requester (Sales)
+            emp_opts = [f"{r['emp_id']} | {r['emp_nickname']}" for _, r in df_emp.iterrows()]
+            sel_emp = c2.selectbox("👔 พนักงานผู้ขอ", emp_opts)
+            
+            reason = st.text_area("📄 รายงานสรุปเหตุผลการขอรีฟัน", 
+                                  placeholder="เช่น: ลูกค้าไม่พอใจบริการ, สินค้าไม่ตรงตามที่สั่ง, ต้องการยกเลิกคอร์ส...",
+                                  height=150)
+            
+            if st.form_submit_button("📤 ส่งเรื่องขอรีฟัน", type="primary", use_container_width=True):
+                if reason.strip():
+                    emp_id = int(sel_emp.split(" | ")[0])
+                    cust_id = df_bills[df_bills['bill_id'] == sel_bill_id].iloc[0].get('customer_id', None)
+                    
+                    run_query("""
+                        INSERT INTO refund_requests (bill_id, customer_id, requested_by, refund_amount, reason)
+                        VALUES (:bid, :cid, :eid, :amt, :reason)
+                    """, {"bid": sel_bill_id, "cid": cust_id, "eid": emp_id, "amt": refund_amt, "reason": reason})
+                    
+                    st.success("✅ ส่งเรื่องขอรีฟันสำเร็จ! รอผู้จัดการอนุมัติ")
+                    st.balloons()
+                else:
+                    st.error("❌ กรุณากรอกเหตุผลการขอรีฟัน")
+    
+    st.divider()
+    
+    # Show My Requests
+    st.subheader("📋 รายการที่ส่งไปแล้ว (ของฉัน)")
+    df_my = run_query("""
+        SELECT r.request_id, r.bill_id, r.refund_amount, r.status, r.created_at, r.manager_note
+        FROM refund_requests r
+        ORDER BY r.created_at DESC
+        LIMIT 20
+    """)
+    if not df_my.empty:
+        df_my['status_display'] = df_my['status'].map({
+            'pending': '🟡 รออนุมัติ',
+            'approved': '🟢 อนุมัติแล้ว',
+            'rejected': '🔴 ไม่อนุมัติ'
+        })
+        st.dataframe(df_my[['request_id', 'bill_id', 'refund_amount', 'status_display', 'created_at', 'manager_note']], 
+                     hide_index=True, use_container_width=True,
+                     column_config={
+                         "request_id": "ID",
+                         "bill_id": "บิล",
+                         "refund_amount": st.column_config.NumberColumn("ยอดรีฟัน", format="฿%,.0f"),
+                         "status_display": "สถานะ",
+                         "created_at": "วันที่ส่ง",
+                         "manager_note": "หมายเหตุจาก Manager"
+                     })
+    else:
+        st.info("ยังไม่มีรายการขอรีฟัน")
+
+
+# --- ✅ อนุมัติรีฟัน (Manager) ---
+elif choice == "✅ อนุมัติรีฟัน":
+    st.header("✅ อนุมัติรีฟัน (Manager)")
+    st.caption("ผู้จัดการสามารถอนุมัติหรือปฏิเสธคำขอรีฟันได้ที่นี่")
+    
+    # Pending Requests
+    df_pending = run_query("""
+        SELECT r.request_id, r.bill_id, c.full_name as customer, e.emp_nickname as requested_by,
+               r.refund_amount, r.reason, r.created_at
+        FROM refund_requests r
+        LEFT JOIN customers c ON r.customer_id = c.customer_id
+        LEFT JOIN employees e ON r.requested_by = e.emp_id
+        WHERE r.status = 'pending'
+        ORDER BY r.created_at ASC
+    """)
+    
+    pending_count = len(df_pending)
+    st.metric("📬 รายการรออนุมัติ", f"{pending_count} รายการ")
+    
+    if not df_pending.empty:
+        for _, req in df_pending.iterrows():
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([2, 1, 1])
+                c1.markdown(f"**🧾 บิล:** {req['bill_id']}")
+                c1.markdown(f"**👤 ลูกค้า:** {req['customer']}")
+                c2.metric("💰 ยอดรีฟัน", f"฿{req['refund_amount']:,.0f}")
+                c3.caption(f"👔 ขอโดย: {req['requested_by']}")
+                c3.caption(f"📅 {req['created_at']}")
+                
+                st.markdown(f"**📄 เหตุผล:** {req['reason']}")
+                
+                # Approval Actions
+                ac1, ac2, ac3 = st.columns([2, 1, 1])
+                mgr_note = ac1.text_input("หมายเหตุ (ถ้ามี)", key=f"note_{req['request_id']}")
+                
+                if ac2.button("✅ อนุมัติ", key=f"approve_{req['request_id']}", type="primary"):
+                    run_query("""
+                        UPDATE refund_requests 
+                        SET status='approved', manager_note=:note, updated_at=CURRENT_TIMESTAMP
+                        WHERE request_id=:id
+                    """, {"id": req['request_id'], "note": mgr_note})
+                    st.success("✅ อนุมัติแล้ว!")
+                    st.rerun()
+                
+                if ac3.button("❌ ไม่อนุมัติ", key=f"reject_{req['request_id']}"):
+                    run_query("""
+                        UPDATE refund_requests 
+                        SET status='rejected', manager_note=:note, updated_at=CURRENT_TIMESTAMP
+                        WHERE request_id=:id
+                    """, {"id": req['request_id'], "note": mgr_note})
+                    st.warning("❌ ปฏิเสธคำขอแล้ว")
+                    st.rerun()
+                
+                st.divider()
+    else:
+        st.success("✅ ไม่มีรายการรออนุมัติ")
+    
+    # History
+    st.subheader("📜 ประวัติการอนุมัติ")
+    df_history = run_query("""
+        SELECT r.request_id, r.bill_id, r.refund_amount, r.status, r.manager_note, r.updated_at
+        FROM refund_requests r
+        WHERE r.status != 'pending'
+        ORDER BY r.updated_at DESC
+        LIMIT 20
+    """)
+    if not df_history.empty:
+        df_history['status_display'] = df_history['status'].map({
+            'approved': '🟢 อนุมัติ',
+            'rejected': '🔴 ไม่อนุมัติ'
+        })
+        st.dataframe(df_history, hide_index=True, use_container_width=True,
+                     column_config={"refund_amount": st.column_config.NumberColumn(format="฿%,.0f")})
