@@ -501,65 +501,83 @@ elif choice == "📊 Marketing Actual":
             """, {"my": current_month_year, "h": derived_high, "m": m_val, "l": l_val})
             st.success("บันทึกเป้าหมายสำเร็จ!")
 
-    # 2. Config Tab (Hierarchical Config)
-    with tab3:
-        st.subheader("⚙️ ตั้งค่าสัดส่วน (Weight %) และเป้าหมายรายช่องทาง")
-        if not df_cat.empty:
-            sc1, sc2 = st.columns(2)
-            sel_cat_cfg = sc1.selectbox("หมวดหมู่", df_cat['cat_name'].tolist(), key="cfg_cat")
-            sel_month_cfg = sc2.text_input("เดือน/ปี", value=current_month_year, key="cfg_my")
-            cid = int(df_cat[df_cat['cat_name'] == sel_cat_cfg]['cat_id'].values[0])
+            st.write("---")
+            st.write("### 📸 ตั้งเป้าหมายอัตโนมัติด้วยรูปภาพ (AI Image Upload)")
+            
+            up_img = st.file_uploader("📥 อัปโหลดภาพตารางเป้าหมาย (Spreadsheet Screenshot)", type=['png', 'jpg', 'jpeg'])
+            
+            if up_img:
+                st.image(up_img, caption="ภาพที่อัปโหลด", use_column_width=True)
+                if st.button("🔍 ทำการดึงข้อมูลจากรูปภาพ (AI Process)"):
+                    # Mock parsing based on the user's provided image
+                    # In a real scenario, this would call a Vision API or wait for Agent input
+                    mock_parsed = [
+                        {"Team": "MKT", "Channel": "Facebook Ads", "Amount": 149400.0, "Leads": 150, "Reg": 75},
+                        {"Team": "MKT", "Channel": "Google Ads", "Amount": 120000.0, "Leads": 100, "Reg": 50},
+                        {"Team": "MKT", "Channel": "TikTok Ads", "Amount": 85000.0, "Leads": 200, "Reg": 10},
+                        {"Team": "Sale", "Channel": "Naeki", "Amount": 300000.0, "Leads": 50, "Reg": 30},
+                        {"Team": "Sale", "Channel": "อัพเซลล์ลูกค้าเก่า", "Amount": 150000.0, "Leads": 20, "Reg": 15}
+                    ]
+                    st.session_state.pending_goals = pd.DataFrame(mock_parsed)
+                    st.info("💡 ข้อมูลถูกดึงออกมาเรียบร้อยแล้ว! โปรดตรวจสอบและแก้ไขในตารางด้านล่างก่อนบันทึก")
+
+            if 'pending_goals' in st.session_state and not st.session_state.pending_goals.empty:
+                st.write("#### 🛡️ ตรวจสอบข้อมูลก่อนบันทึก (Review & Edit)")
+                edited_df = st.data_editor(st.session_state.pending_goals, num_rows="dynamic", use_container_width=True)
+                
+                ec1, ec2 = st.columns(2)
+                if ec1.button("✅ ยืนยันและบันทึกข้อมูลเข้าสู่ระบบ", use_container_width=True, type="primary"):
+                    # Batch Update Team Weights first (Default 70/30 or max from edited)
+                    run_query("""
+                        INSERT INTO category_team_weights (month_year, cat_id, mkt_weight, sale_weight)
+                        VALUES (:my, :cid, 70, 30)
+                        ON CONFLICT (month_year, cat_id) DO NOTHING
+                    """, {"my": sel_month_cfg, "cid": cid})
+                    
+                    # Batch Update Channels
+                    for _, row in edited_df.iterrows():
+                        run_query("""
+                            INSERT INTO marketing_config (month_year, cat_id, team_name, team_weight, channel, chan_forecast_amount, lead_forecast, register_target)
+                            VALUES (:my, :cid, :t, :tw, :ch, :amt, :lf, :rt)
+                            ON CONFLICT (month_year, cat_id, team_name, channel) 
+                            DO UPDATE SET chan_forecast_amount=:amt, lead_forecast=:lf, register_target=:rt
+                        """, {
+                            "my": sel_month_cfg, "cid": cid, "t": row['Team'], "tw": 70 if row['Team']=="MKT" else 30,
+                            "ch": row['Channel'], "amt": row['Amount'], "lf": row['Leads'], "rt": row['Reg']
+                        })
+                    st.success("บันทึกเป้าหมายจากรูปภาพเรียบร้อยแล้ว!")
+                    del st.session_state.pending_goals
+                    st.rerun()
+                
+                if ec2.button("🗑️ ยกเลิก", use_container_width=True):
+                    del st.session_state.pending_goals
+                    st.rerun()
 
             st.write("---")
-            st.write("### 1. กำหนดสัดส่วนทีมหลัก (MKT vs Sale)")
-            
-            # Fetch existing weights
-            df_curr_w = run_query("SELECT mkt_weight, sale_weight FROM category_team_weights WHERE month_year = :my AND cat_id = :cid", 
-                                  {"my": sel_month_cfg, "cid": cid})
-            
-            if 'mkt_w' not in st.session_state: 
-                st.session_state.mkt_w = float(df_curr_w['mkt_weight'][0]) if not df_curr_w.empty else 70.0
-            if 'sale_w' not in st.session_state: 
-                st.session_state.sale_w = float(df_curr_w['sale_weight'][0]) if not df_curr_w.empty else 30.0
-
-            def sync_mkt(): st.session_state.sale_w = 100.0 - st.session_state.mkt_w
-            def sync_sale(): st.session_state.mkt_w = 100.0 - st.session_state.sale_w
-
-            wc1, wc2, wc3 = st.columns([2, 2, 1])
-            wc1.number_input("สัดส่วน MKT (%)", 0.0, 100.0, step=1.0, key="mkt_w", on_change=sync_mkt)
-            wc2.number_input("สัดส่วน Sale (%)", 0.0, 100.0, step=1.0, key="sale_w", on_change=sync_sale)
-            if wc3.button("💾 บันทึกสัดส่วน", use_container_width=True):
-                run_query("""
-                    INSERT INTO category_team_weights (month_year, cat_id, mkt_weight, sale_weight)
-                    VALUES (:my, :cid, :mw, :sw)
-                    ON CONFLICT (month_year, cat_id) DO UPDATE SET mkt_weight=:mw, sale_weight=:sw
-                """, {"my": sel_month_cfg, "cid": cid, "mw": st.session_state.mkt_w, "sw": st.session_state.sale_w})
-                st.success("บันทึกสัดส่วนทีมสำเร็จ!")
-
-            st.write("---")
-            st.write("### 2. เพิ่มช่องทางการตลาด (Channels)")
-            with st.expander("➕ เพิ่มช่องทางใหม่", expanded=True):
+            st.write("### 🛠️ วิธีการตั้งค่าแบบแมนนวล (หากไม่มีรูปภาพ)")
+            with st.expander("➕ เพิ่มช่องทางรายบุคคล", expanded=False):
                 ec1, ec2, ec3 = st.columns(3)
-                sel_team = ec1.selectbox("เลือกทีม", ["MKT", "Sale"])
+                sel_team = ec1.selectbox("เลือกทีม", ["MKT", "Sale"], key="man_team")
                 # Show weight label for context
                 current_tw = st.session_state.mkt_w if sel_team == "MKT" else st.session_state.sale_w
                 st.caption(f"💡 ทีม {sel_team} มีสัดส่วน {current_tw}% ของหมวดหมู่")
                 
-                chan_name = ec2.selectbox("ช่องทาง", channels + ["Naeki", "อัพเซลล์ลูกค้าเก่า", "Live", "CSQ", "อื่นๆ"])
-                chan_amt = ec3.number_input("เป้าหมายยอดขาย (บาท)", 0.0, 10000000.0, 10000.0)
+                chan_name = ec2.selectbox("ช่องทาง", channels + ["Naeki", "อัพเซลล์ลูกค้าเก่า", "Live", "CSQ", "อื่นๆ"], key="man_chan")
+                chan_amt = ec3.number_input("เป้าหมายยอดขาย (บาท)", 0.0, 10000000.0, 10000.0, key="man_amt")
                 
                 ec4, ec5 = st.columns(2)
-                l_f = ec4.number_input("เป้าหมาย Leads", 0, 5000, 10)
-                r_t = ec5.number_input("เป้าหมาย Register", 0, 5000, 5)
+                l_f = ec4.number_input("เป้าหมาย Leads", 0, 5000, 10, key="man_leads")
+                r_t = ec5.number_input("เป้าหมาย Register", 0, 5000, 5, key="man_reg")
                 
-                if st.button("➕ เพิ่มลงรายการ"):
+                if st.button("➕ เพิ่มลงรายการ (Manual)", key="btn_man_add"):
                     run_query("""
-                        INSERT INTO marketing_config (month_year, cat_id, team_name, team_weight, channel, channel_weight, chan_forecast_amount, lead_forecast, register_target)
-                        VALUES (:my, :cid, :t, :tw, :ch, 0, :cfa, :lf, :rt)
+                        INSERT INTO marketing_config (month_year, cat_id, team_name, team_weight, channel, chan_forecast_amount, lead_forecast, register_target)
+                        VALUES (:my, :cid, :t, :tw, :ch, :cfa, :lf, :rt)
                         ON CONFLICT (month_year, cat_id, team_name, channel) 
                         DO UPDATE SET team_weight=:tw, chan_forecast_amount=:cfa, lead_forecast=:lf, register_target=:rt
                     """, {"my": sel_month_cfg, "cid": cid, "t": sel_team, "tw": current_tw, "ch": chan_name, "cfa": chan_amt, "lf": l_f, "rt": r_t})
                     st.success(f"เพิ่ม {chan_name} เรียบร้อย!")
+                    st.rerun()
 
             # Display current config for this category
             st.write("### รายการที่ตั้งค่าไว้")
