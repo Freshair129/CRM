@@ -105,6 +105,32 @@ def init_db():
                 channel TEXT,
                 cat_id INTEGER,
                 lead_count INTEGER DEFAULT 0
+            )''',
+            '''CREATE TABLE IF NOT EXISTS monthly_goals (
+                goal_id SERIAL PRIMARY KEY,
+                month_year TEXT UNIQUE,
+                high_target REAL,
+                mid_target REAL,
+                low_target REAL
+            )''',
+            '''CREATE TABLE IF NOT EXISTS marketing_config (
+                config_id SERIAL PRIMARY KEY,
+                month_year TEXT,
+                cat_id INTEGER,
+                team_name TEXT,
+                team_weight REAL,
+                channel TEXT,
+                channel_weight REAL,
+                lead_forecast INTEGER DEFAULT 0,
+                register_target INTEGER DEFAULT 0,
+                UNIQUE(month_year, cat_id, team_name, channel)
+            )''',
+            '''CREATE TABLE IF NOT EXISTS daily_registers (
+                reg_id SERIAL PRIMARY KEY,
+                reg_date DATE DEFAULT CURRENT_DATE,
+                channel TEXT,
+                cat_id INTEGER,
+                reg_count INTEGER DEFAULT 0
             )'''
         ]
         for q in queries:
@@ -143,7 +169,73 @@ ALL_PROVINCES = sorted(list(LOCATION_DATA.keys()))
 init_db()
 
 # --- 3. Sidebar Menu ---
-st.set_page_config(page_title="CRM Smart Pro", layout="wide")
+st.set_page_config(page_title="CRM Smart Pro", layout="wide", initial_sidebar_state="expanded")
+
+# Custom CSS for Premium Dark Mode Aesthetics
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500&display=swap');
+    
+    html, body, [class*="css"]  {
+        font-family: 'Kanit', sans-serif;
+    }
+    
+    /* Global Background Gradient */
+    .stApp {
+        background: radial-gradient(circle at top right, #1e293b, #0f172a);
+    }
+
+    /* Sidebar Glassmorphism */
+    [data-testid="stSidebar"] {
+        background: rgba(30, 41, 59, 0.7) !important;
+        backdrop-filter: blur(10px);
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* Card-like containers using glassmorphism */
+    div.stButton > button {
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.05);
+        transition: all 0.3s ease;
+    }
+    div.stButton > button:hover {
+        background: linear-gradient(90deg, #00d2ff 0%, #3a7bd5 100%);
+        color: white;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(0, 210, 255, 0.3);
+    }
+
+    /* Metric Styling */
+    [data-testid="stMetricValue"] {
+        font-size: 1.8rem !important;
+        font-weight: 600;
+        background: -webkit-linear-gradient(#00d2ff, #3a7bd5);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    /* DataFrame styling */
+    .stDataFrame {
+        border-radius: 15px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* Headings */
+    h1, h2, h3 {
+        color: #00d2ff !important;
+    }
+    
+    /* Success/Info boxes */
+    .stAlert {
+        background: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        backdrop-filter: blur(5px);
+        color: #fafafa !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 with st.sidebar:
     st.title("🚀 CRM System")
     if 'menu_option' not in st.session_state: st.session_state.menu_option = "📊 Dashboard"
@@ -190,22 +282,35 @@ if choice == "📊 Dashboard":
         df_sales['หมวดหมู่'] = df_sales['หมวดหมู่'].fillna("📁 ไม่ระบุหมวดหมู่")
         
         # --- Section 1: Top Metrics ---
-        st.subheader("🎯 เป้าหมายการขายรายวัน")
-        c1, c2 = st.columns([1, 2])
-        daily_goal = c1.number_input("ตั้งเป้าหมายยอดขาย (บาท)", min_value=0.0, value=100000.0, step=1000.0)
+        st.subheader("🎯 เป้าหมายการขายประจำเดือน (Forecast Overview)")
+        
+        # Pull Monthly goals
+        current_my = datetime.now().strftime("%b-%Y")
+        m_goal = run_query("SELECT * FROM monthly_goals WHERE month_year = :my", {"my": current_my})
+        
+        if not m_goal.empty:
+            g_high = m_goal['high_target'][0]
+            g_mid = m_goal['mid_target'][0]
+            g_low = m_goal['low_target'][0]
+            
+            c1, c2, c3 = st.columns(3)
+            total_sales_m = df_sales['ยอดเงิน'].sum() # Simplified to total sales for now
+            with c1:
+                st.metric("🔥 High Target", f"{g_high:,.0f}")
+                st.progress(min(1.0, total_sales_m / g_high))
+            with c2:
+                st.metric("🚀 Mid Target", f"{g_mid:,.0f}")
+                st.progress(min(1.0, total_sales_m / g_mid))
+            with c3:
+                st.metric("🎯 Low Target", f"{g_low:,.0f}")
+                st.progress(min(1.0, total_sales_m / g_low))
+        else:
+            st.warning("⚠️ ยังไม่ได้ตั้งเป้าหมายเดือนนี้ (ไปที่ Marketing Actual -> เป้าหมายเดือน)")
+        
+        st.divider()
         
         today = datetime.now().date()
         sales_today = df_sales[df_sales['วันที่'] == today]['ยอดเงิน'].sum()
-        diff = daily_goal - sales_today
-        
-        with c2:
-            st.write("") # Spacer
-            if diff > 0:
-                st.warning(f"🚩 ยอดขายวันนี้: {sales_today:,.2f} | ขาดอีก :red[{diff:,.2f}] บาท")
-            else:
-                st.success(f"🎊 ยอดขายวันนี้: {sales_today:,.2f} | เกินเป้าหมายมาแล้ว {abs(diff):,.2f} บาท")
-        
-        st.divider()
         
         mc1, mc2, mc3 = st.columns(3)
         mc1.metric("ยอดขายรวมทั้งหมด", f"{df_sales['ยอดเงิน'].sum():,.2f} บาท")
@@ -305,15 +410,9 @@ elif choice == "💵 P&L Dashboard":
 elif choice == "🎯 Goal Tracker":
     st.header("🎯 ระบบติดตามเป้าหมายการขาย (Goal Tracker)")
     
-    # ตั้งค่าเป้าหมาย
-    with st.expander("⚙️ ตั้งค่าเป้าหมายประจำเดือน", expanded=False):
-        gl1, gl2, gl3 = st.columns(3)
-        target_low = gl1.number_input("เป้าหมายขั้นต่ำ (Low)", value=1000000.0, step=10000.0)
-        target_mid = gl2.number_input("เป้าหมายกลาง (Mid)", value=2500000.0, step=10000.0)
-        target_high = gl3.number_input("เป้าหมายสูงสุด (High)", value=5000000.0, step=10000.0)
-
-    # คำนวณยอดขายเดือนนี้ (Synchronized with Marketing Actual)
+    # คำนวณยอดขายเดือนนี้
     now = datetime.now()
+    current_my = now.strftime("%b-%Y")
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     
     df_month = run_query("""
@@ -325,22 +424,31 @@ elif choice == "🎯 Goal Tracker":
     
     current_sales = df_month['m_total'][0] or 0.0
     
-    # แสดง Progress Bar
-    st.subheader(f"📅 ยอดขายเดือน {now.strftime('%B %Y')}")
-    st.markdown(f"### มียอดขายแล้ว: :blue[{current_sales:,.2f}] บาท")
+    # ดึงเป้าหมายจากโต๊ะจริง
+    m_goal = run_query("SELECT * FROM monthly_goals WHERE month_year = :my", {"my": current_my})
     
-    # Progress towards targets
-    for name, target, color in [("🎯 Low Target", target_low, "orange"), ("🚀 Mid Target", target_mid, "blue"), ("🔥 High Target", target_high, "green")]:
-        progress = min(100.0, (current_sales / target * 100))
-        rem = max(0.0, target - current_sales)
+    if m_goal.empty:
+        st.warning("⚠️ กรุณาไปตั้งเป้าหมายเดือนนี้ที่เมนู 'Marketing Actual' -> 'เป้าหมายเดือน' ก่อนครับ")
+    else:
+        target_high = m_goal['high_target'][0]
+        target_mid = m_goal['mid_target'][0]
+        target_low = m_goal['low_target'][0]
+
+        st.subheader(f"📅 ยอดขายเดือน {now.strftime('%B %Y')}")
+        st.markdown(f"### มียอดขายแล้ว: :blue[{current_sales:,.2f}] บาท")
         
-        st.write(f"**{name}** (฿{target:,.0f})")
-        if rem > 0:
-            st.info(f"สะสมแล้ว {progress:.1f}% | ต้องทำเพิ่มอีก :red[{rem:,.2f}] บาท ถึงจะเข้าเป้า")
-        else:
-            st.success(f"✅ บรรลุเป้าหมาย {name} เรียบร้อย! (เกินเป้า {abs(rem):,.2f} บาท)")
-        st.progress(progress / 100)
-        st.write("")
+        # Progress towards targets
+        for name, target, color in [("🎯 Low Target", target_low, "orange"), ("🚀 Mid Target", target_mid, "blue"), ("🔥 High Target", target_high, "green")]:
+            progress = min(100.0, (current_sales / target * 100))
+            rem = max(0.0, target - current_sales)
+            
+            st.write(f"**{name}** (฿{target:,.0f})")
+            if rem > 0:
+                st.info(f"สะสมแล้ว {progress:.1f}% | ต้องทำเพิ่มอีก :red[{rem:,.2f}] บาท ถึงจะเข้าเป้า")
+            else:
+                st.success(f"✅ บรรลุเป้าหมาย {name} เรียบร้อย! (เกินเป้า {abs(rem):,.2f} บาท)")
+            st.progress(progress / 100)
+            st.write("")
 
 # --- 📊 Marketing Actual ---
 elif choice == "📊 Marketing Actual":
@@ -348,100 +456,153 @@ elif choice == "📊 Marketing Actual":
     
     df_cat = run_query("SELECT * FROM categories")
     channels = ["Facebook Ads", "Google Ads", "TikTok Ads", "Line OA", "Openhouse", "โรงเรียนอนุบาล", "ลูกค้าเก่า/Re-sale", "อื่นๆ"]
+    current_month_year = datetime.now().strftime("%b-%Y")
     
-    tab1, tab2, tab3 = st.tabs(["📈 สรุปผลงาน (Performance)", "📝 บันทึกคนทัก (Record Leads)", "⚙️ ตั้งเป้าหมาย (Set Goals)"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📈 สรุปผลงาน (Performance)", "📝 บันทึก Leads/Registers", "⚙️ ตั้งค่าเป้าหมาย/ช่องทาง", "🏆 เป้าหมายเดือน"])
     
-    with tab3:
-        st.subheader("⚙️ ตั้งเป้าหมายแยกตามหมวดหมู่และช่องทาง")
-        if not df_cat.empty:
-            c1, c2, c3 = st.columns(3)
-            sel_cat_goal = c1.selectbox("เลือกหมวดหมู่", df_cat['cat_name'].tolist(), key="mkt_goal_cat")
-            sel_chan_goal = c2.selectbox("เลือกช่องทาง", channels, key="mkt_goal_chan")
-            goal_amt = c3.number_input("เป้าหมายยอดขาย (บาท)", min_value=0.0, step=1000.0)
-            
-            c4, c5 = st.columns(2)
-            lead_f = c4.number_input("เป้าหมายคนทัก (Leads)", min_value=0, step=1)
-            target_month = c5.text_input("เดือน/ปี (เช่น Jan-2026)", value=datetime.now().strftime("%b-%Y"))
-            
-            if st.button("💾 บันทึกเป้าหมาย"):
-                cat_id = df_cat[df_cat['cat_name'] == sel_cat_goal]['cat_id'].values[0]
-                run_query("""
-                    INSERT INTO marketing_goals (cat_id, channel, target_amount, lead_forecast, month_year)
-                    VALUES (:cid, :chan, :amt, :lf, :my)
-                """, {"cid": int(cat_id), "chan": sel_chan_goal, "amt": goal_amt, "lf": lead_f, "my": target_month})
-                st.success("บันทึกเป้าหมายสำเร็จ!")
-        else:
-            st.warning("กรุณาเพิ่มหมวดหมู่สินค้าก่อน")
+    # 1. Monthly Goals Tab
+    with tab4:
+        st.subheader("🏆 ตั้งเป้าหมายรวมประจำเดือน")
+        existing_m_goal = run_query("SELECT * FROM monthly_goals WHERE month_year = :my", {"my": current_month_year})
+        
+        col1, col2, col3 = st.columns(3)
+        h_val = col1.number_input("High Target", value=float(existing_m_goal['high_target'][0]) if not existing_m_goal.empty else 1000000.0)
+        m_val = col2.number_input("Mid Target", value=float(existing_m_goal['mid_target'][0]) if not existing_m_goal.empty else 750000.0)
+        l_val = col3.number_input("Low Target", value=float(existing_m_goal['low_target'][0]) if not existing_m_goal.empty else 500000.0)
+        
+        if st.button("💾 บันทึกเป้าหมายเดือน"):
+            run_query("""
+                INSERT INTO monthly_goals (month_year, high_target, mid_target, low_target)
+                VALUES (:my, :h, :m, :l)
+                ON CONFLICT (month_year) DO UPDATE SET high_target=:h, mid_target=:m, low_target=:l
+            """, {"my": current_month_year, "h": h_val, "m": m_val, "l": l_val})
+            st.success("บันทึกเป้าหมายสำเร็จ!")
 
+    # 2. Config Tab (Hierarchical Config)
+    with tab3:
+        st.subheader("⚙️ ตั้งค่าสัดส่วน (Weight %) และเป้าหมายรายช่องทาง")
+        if not df_cat.empty:
+            sc1, sc2 = st.columns(2)
+            sel_cat_cfg = sc1.selectbox("หมวดหมู่", df_cat['cat_name'].tolist(), key="cfg_cat")
+            sel_month_cfg = sc2.text_input("เดือน/ปี", value=current_month_year, key="cfg_my")
+            
+            # Category Target calculation based on High target (default)
+            m_goal = run_query("SELECT high_target FROM monthly_goals WHERE month_year = :my", {"my": sel_month_cfg})
+            cat_target_base = m_goal['high_target'][0] if not m_goal.empty else 1000000.0
+            
+            with st.expander("➕ เพิ่ม/แก้ไข ช่องทาง", expanded=True):
+                ec1, ec2, ec3 = st.columns(3)
+                team_name = ec1.selectbox("กลุ่มทีม/ประเภท", ["MKT 70%", "MKT 60%", "MKT 100%", "Sale 30%", "Sale 40%", "Sale 0%"])
+                chan_name = ec2.selectbox("ช่องทาง", channels + ["Naeki", "อัพเซลล์ลูกค้าเก่า", "Live", "CSQ", "อื่นๆ"])
+                team_w = ec3.number_input("สัดส่วนทีม (%)", 0, 100, 70)
+                
+                ec4, ec5, ec6 = st.columns(3)
+                chan_w = ec4.number_input("สัดส่วนช่องทาง (%)", 0, 100, 20)
+                lead_f = ec5.number_input("เป้าหมาย Leads", 0, 1000, 10)
+                reg_t = ec6.number_input("เป้าหมาย Register", 0, 1000, 5)
+                
+                if st.button("💾 บันทึกการตั้งค่า"):
+                    cid = int(df_cat[df_cat['cat_name'] == sel_cat_cfg]['cat_id'].values[0])
+                    run_query("""
+                        INSERT INTO marketing_config (month_year, cat_id, team_name, team_weight, channel, channel_weight, lead_forecast, register_target)
+                        VALUES (:my, :cid, :t, :tw, :ch, :cw, :lf, :rt)
+                        ON CONFLICT (month_year, cat_id, team_name, channel) 
+                        DO UPDATE SET team_weight=:tw, channel_weight=:cw, lead_forecast=:lf, register_target=:rt
+                    """, {"my": sel_month_cfg, "cid": cid, "t": team_name, "tw": team_w, "ch": chan_name, "cw": chan_w, "lf": lead_f, "rt": reg_t})
+                    st.success("บันทึกโครงสร้างสำเร็จ!")
+            
+            # Display current config
+            df_cfg_list = run_query("""
+                SELECT mc.*, c.cat_name 
+                FROM marketing_config mc 
+                JOIN categories c ON mc.cat_id = c.cat_id
+                WHERE mc.month_year = :my
+            """, {"my": sel_month_cfg})
+            if not df_cfg_list.empty:
+                st.dataframe(df_cfg_list[['cat_name', 'team_name', 'team_weight', 'channel', 'channel_weight', 'lead_forecast', 'register_target']], use_container_width=True)
+                if st.button("🗑️ ล้างการตั้งค่าหมวดหมู่นี้"):
+                    cid = int(df_cat[df_cat['cat_name'] == sel_cat_cfg]['cat_id'].values[0])
+                    run_query("DELETE FROM marketing_config WHERE month_year = :my AND cat_id = :cid", {"my": sel_month_cfg, "cid": cid})
+                    st.rerun()
+
+    # 3. Data Entry Tab
     with tab2:
-        st.subheader("📝 บันทึกจำนวนคนทักรายวัน (Daily Leads)")
+        st.subheader("📝 บันทึก Leads และ Registration รายวัน")
         if not df_cat.empty:
             lc1, lc2, lc3 = st.columns(3)
             l_date = lc1.date_input("วันที่", value=datetime.now().date())
-            l_cat = lc2.selectbox("หมวดหมู่สินค้า", df_cat['cat_name'].tolist(), key="lead_cat")
-            l_chan = lc3.selectbox("ช่องทาง", channels, key="lead_chan")
-            l_count = st.number_input("จำนวนคนทัก (Leads)", min_value=0, step=1)
+            l_cat = lc2.selectbox("หมวดหมู่สินค้า", df_cat['cat_name'].tolist(), key="rec_cat")
+            l_chan = lc3.selectbox("ช่องทาง", channels + ["Naeki", "อัพเซลล์ลูกค้าเก่า", "Live", "CSQ", "อื่นๆ"], key="rec_chan")
             
-            if st.button("➕ บันทึก Lead"):
-                cat_id = df_cat[df_cat['cat_name'] == l_cat]['cat_id'].values[0]
-                run_query("""
-                    INSERT INTO daily_leads (lead_date, channel, cat_id, lead_count)
-                    VALUES (:ld, :chan, :cid, :lc)
-                """, {"ld": l_date, "chan": l_chan, "cid": int(cat_id), "lc": l_count})
-                st.success(f"บันทึก {l_count} Leads สำหรับ {l_cat} ผ่าน {l_chan} เรียบร้อย!")
+            lc4, lc5 = st.columns(2)
+            l_count = lc4.number_input("จำนวนคนทัก (Leads)", min_value=0, step=1)
+            r_count = lc5.number_input("จำนวนคนลงทะเบียน (Registers)", min_value=0, step=1)
+            
+            if st.button("➕ บันทึกข้อมูล"):
+                cid = int(df_cat[df_cat['cat_name'] == l_cat]['cat_id'].values[0])
+                if l_count > 0:
+                    run_query("INSERT INTO daily_leads (lead_date, channel, cat_id, lead_count) VALUES (:ld, :chan, :cid, :lc)", 
+                              {"ld": l_date, "chan": l_chan, "cid": cid, "lc": l_count})
+                if r_count > 0:
+                    run_query("INSERT INTO daily_registers (reg_date, channel, cat_id, reg_count) VALUES (:rd, :chan, :cid, :rc)", 
+                              {"rd": l_date, "chan": l_chan, "cid": cid, "rc": r_count})
+                st.success("บันทึกเรียบร้อย!")
         
+    # 4. Performance Tab (Hierarchical Table)
     with tab1:
-        st.subheader("🎯 ตารางเปรียบเทียบ เป้าหมาย vs ผลงานจริง")
+        st.subheader("🎯 สรุปผลการดำเนินงานการตลาด")
+        sel_month_perf = st.selectbox("เลือกเดือน", [current_month_year], key="perf_month") # Expandable
         
-        # 1. Get Goals
-        df_goals = run_query("""
-            SELECT g.*, c.cat_name 
-            FROM marketing_goals g
-            JOIN categories c ON g.cat_id = c.cat_id
-        """)
+        # Pull Configs
+        df_full_cfg = run_query("""
+            SELECT mc.*, c.cat_name 
+            FROM marketing_config mc 
+            JOIN categories c ON mc.cat_id = c.cat_id
+            WHERE mc.month_year = :my
+        """, {"my": sel_month_perf})
         
-        # 2. Get Actual Sales from bills (grouped by category and channel)
-        df_actual_sales = run_query("""
-            SELECT p.cat_id, b.sale_channel as channel, SUM(bi.subtotal) as actual_amount
-            FROM bill_items bi
-            JOIN bills b ON bi.bill_id = b.bill_id
-            JOIN products p ON bi.product_id = p.product_id
-            GROUP BY p.cat_id, b.sale_channel
-        """)
+        # Pull Monthly Goal
+        m_goal_row = run_query("SELECT high_target FROM monthly_goals WHERE month_year = :my", {"my": sel_month_perf})
+        total_high_target = m_goal_row['high_target'][0] if not m_goal_row.empty else 1000000.0
         
-        # 3. Get Actual Leads
-        df_actual_leads = run_query("""
-            SELECT cat_id, channel, SUM(lead_count) as actual_leads
-            FROM daily_leads
-            GROUP BY cat_id, channel
-        """)
-        
-        if not df_goals.empty:
-            # Merge Everything
-            summary = df_goals.merge(df_actual_sales, on=['cat_id', 'channel'], how='left')
-            summary = summary.merge(df_actual_leads, on=['cat_id', 'channel'], how='left')
+        if not df_full_cfg.empty:
+            # Aggregate Actual Sales
+            df_act_sales = run_query("""
+                SELECT p.cat_id, b.sale_channel as channel, SUM(bi.subtotal) as actual_amount
+                FROM bill_items bi
+                JOIN bills b ON bi.bill_id = b.bill_id
+                JOIN products p ON bi.product_id = p.product_id
+                GROUP BY p.cat_id, b.sale_channel
+            """)
             
-            summary['actual_amount'] = summary['actual_amount'].fillna(0)
-            summary['actual_leads'] = summary['actual_leads'].fillna(0)
+            # Aggregate Actual Leads/Registers
+            df_act_leads = run_query("SELECT cat_id, channel, SUM(lead_count) as leads FROM daily_leads GROUP BY cat_id, channel")
+            df_act_regs = run_query("SELECT cat_id, channel, SUM(reg_count) as regs FROM daily_registers GROUP BY cat_id, channel")
             
-            # Calculations
-            summary['Diff Sales'] = summary['actual_amount'] - summary['target_amount']
-            summary['% Achievement'] = (summary['actual_amount'] / summary['target_amount'] * 100).fillna(0).round(1)
-            summary['Conv. Rate %'] = (summary['actual_amount'] / summary['actual_leads'].replace(0, 1) / 100).round(2) # Simplified for now
+            # Merge & Calculate
+            summary = df_full_cfg.copy()
+            # Target = Monthly High Target * (Category % - calculated from team weights?) 
+            # Simplified: Category weight is implicitly handled by the user ensuring total weights add up.
+            # Here we assume channel target = total_high_target * (team_w/100) * (chan_w/100)
+            summary['Target Amount'] = total_high_target * (summary['team_weight']/100) * (summary['channel_weight']/100)
             
-            # Display Table
-            final_display = summary[['cat_name', 'channel', 'lead_forecast', 'actual_leads', 'target_amount', 'actual_amount', 'Diff Sales', '% Achievement']]
+            summary = summary.merge(df_act_sales, on=['cat_id', 'channel'], how='left').fillna(0)
+            summary = summary.merge(df_act_leads, on=['cat_id', 'channel'], how='left').fillna(0)
+            summary = summary.merge(df_act_regs, on=['cat_id', 'channel'], how='left').fillna(0)
             
-            st.dataframe(final_display, 
-                         use_container_width=True, hide_index=True,
-                         column_config={
-                             "target_amount": st.column_config.NumberColumn("Target Sale", format="฿%,.0f"),
-                             "actual_amount": st.column_config.NumberColumn("Actual Sale", format="฿%,.0f"),
-                             "Diff Sales": st.column_config.NumberColumn("DIFF", format="฿%,.0f"),
-                             "% Achievement": st.column_config.NumberColumn("% Achievement", format="%.1f%%")
-                         })
+            summary['DIFT'] = summary['actual_amount'] - summary['Target Amount']
+            summary['% Achievement'] = (summary['actual_amount'] / summary['Target Amount'].replace(0, 1) * 100).round(1)
+            
+            # Reorder columns for display
+            disp = summary[['cat_name', 'team_name', 'channel', 'team_weight', 'Target Amount', 'lead_forecast', 'leads', 'register_target', 'regs', 'actual_amount', 'DIFT', '% Achievement']]
+            disp.columns = ['หมวดหมู่', 'ทีม', 'ช่องทาง', 'Weight %', 'เป้าขาย', 'เป้า Lead', 'ทักจริง', 'เป้า Reg', 'จองจริง', 'ยอดขาย', 'DIFT', '% บรรลุ']
+            
+            st.dataframe(disp.style.format({
+                'เป้าขาย': '{:,.0f}', 'ยอดขาย': '{:,.0f}', 'DIFT': '{:,.0f}', '% บรรลุ': '{:.1f}%'
+            }), use_container_width=True, hide_index=True)
+            
         else:
-            st.info("กรุณาตั้งเป้าหมายในแท็บ 'ตั้งเป้าหมาย' เพื่อดูการเปรียบเทียบข้อมูล")
+            st.info("กรุณาตั้งค่าสัดส่วนทีมและช่องทางในแท็บ 'ตั้งค่าเป้าหมาย/ช่องทาง' ก่อนครับ")
 
 
 # --- 💰 บันทึกการขาย ---

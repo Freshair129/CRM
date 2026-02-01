@@ -1,0 +1,20 @@
+# Streamlit sensitive files
+.streamlit/
+
+# Python temporary files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.DS_Store
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
