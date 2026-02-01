@@ -150,6 +150,28 @@ def init_db():
                 emp_id INTEGER,
                 target_amount REAL DEFAULT 0,
                 UNIQUE(month_year, emp_id)
+            )''',
+            '''CREATE TABLE IF NOT EXISTS packages (
+                package_id SERIAL PRIMARY KEY,
+                package_name TEXT UNIQUE NOT NULL,
+                base_price REAL,
+                discounted_price REAL,
+                note TEXT
+            )''',
+            '''CREATE TABLE IF NOT EXISTS package_products (
+                id SERIAL PRIMARY KEY,
+                package_id INTEGER,
+                product_id INTEGER,
+                is_free BOOLEAN DEFAULT FALSE
+            )''',
+            '''CREATE TABLE IF NOT EXISTS course_credits (
+                credit_id SERIAL PRIMARY KEY,
+                customer_id INTEGER,
+                bill_id TEXT,
+                product_id INTEGER,
+                buy_date DATE DEFAULT CURRENT_DATE,
+                expiry_date DATE,
+                status TEXT DEFAULT 'Available'
             )'''
         ]
         for q in queries:
@@ -188,6 +210,12 @@ def init_db():
             run_query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS gender TEXT")
             run_query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS marital_status TEXT")
             run_query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS has_children TEXT")
+        except: pass
+
+        # Add columns for Package System
+        try:
+            run_query("ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS package_id INTEGER")
+            run_query("ALTER TABLE bills ADD COLUMN IF NOT EXISTS package_id INTEGER")
         except: pass
     except Exception as e:
         st.error(f"⚠️ Database Error: {e}")
@@ -313,6 +341,7 @@ with st.sidebar:
     st.button("👥 จัดการลูกค้า", on_click=set_menu, args=("👥 จัดการลูกค้า",), use_container_width=True)
     st.button("👔 จัดการพนักงาน", on_click=set_menu, args=("👔 จัดการพนักงาน",), use_container_width=True)
     st.button("📦 จัดการสินค้า", on_click=set_menu, args=("📦 จัดการสินค้า",), use_container_width=True)
+    st.button("🎁 ตั้งค่าแพ็กเกจ", on_click=set_menu, args=("🎁 ตั้งค่าแพ็กเกจ",), use_container_width=True)
     
     st.markdown("---")
     st.subheader("📈 Marketing Tools")
@@ -396,6 +425,87 @@ if choice == "📊 Dashboard":
                      })
     else:
         st.info("👋 ยินดีต้อนรับ! ยังไม่มีข้อมูลการขายในระบบ เริ่มบันทึกการขายเพื่อดูสถิติได้ที่นี่ครับ")
+
+# --- 🎁 ตั้งค่าแพ็กเกจ (Package Management) ---
+elif choice == "🎁 ตั้งค่าแพ็กเกจ":
+    st.title("🎁 จัดการแพ็กเกจสินค้า (Package Settings)")
+    st.markdown("ใช้สำหรับกำหนดหลักสูตรเหมาจ่ายที่ประกอบไปด้วยหลายคอร์สเรียน")
+    
+    # 1. Add/Edit Package Form
+    with st.expander("➕ สร้างหรือแก้ไขแพ็กเกจ", expanded=True):
+        df_all_p = run_query("SELECT product_id, product_name, price FROM products")
+        
+        # Check for Edit Mode
+        all_pkgs = run_query("SELECT * FROM packages")
+        pkg_opts = ["-- สร้างแพ็กเกจใหม่ --"] + [f"{r['package_id']} | {r['package_name']}" for _, r in all_pkgs.iterrows()]
+        sel_pkg = st.selectbox("เลือกแพ็กเกจเพื่อแก้ไข", pkg_opts)
+        
+        edit_mode = sel_pkg != "-- สร้างแพ็กเกจใหม่ --"
+        edit_id = int(sel_pkg.split(" | ")[0]) if edit_mode else None
+        
+        curr_pkg_data = all_pkgs[all_pkgs['package_id'] == edit_id].iloc[0] if edit_mode else None
+        
+        with st.form("pkg_form"):
+            name = st.text_input("ชื่อแพ็กเกจ/หลักสูตร", value=curr_pkg_data['package_name'] if edit_mode else "")
+            col1, col2 = st.columns(2)
+            base_p = col1.number_input("ราคารวมปกติ (Base Price)", value=float(curr_pkg_data['base_price']) if edit_mode else 0.0)
+            disc_p = col2.number_input("ราคาขายพิเศษ (Discounted Price)", value=float(curr_pkg_data['discounted_price']) if edit_mode else 0.0)
+            note = st.text_area("หมายเหตุ/เงื่อนไข", value=curr_pkg_data['note'] if edit_mode else "")
+            
+            # Multi-select for default courses
+            current_items = []
+            if edit_mode:
+                df_cur_items = run_query("SELECT product_id FROM package_products WHERE package_id = :id", {"id": edit_id})
+                current_items = df_cur_items['product_id'].tolist()
+            
+            p_opts = {f"{r['product_id']} | {r['product_name']}": r['product_id'] for _, r in df_all_p.iterrows()}
+            sel_items_str = st.multiselect("เลือกคอร์สเรียนที่รวมในแพ็กเกจ", options=list(p_opts.keys()), 
+                                           default=[k for k, v in p_opts.items() if v in current_items])
+            
+            sub1, sub2 = st.columns(2)
+            if sub1.form_submit_button("💾 บันทึกแพ็กเกจ", use_container_width=True):
+                if name:
+                    if edit_mode:
+                        run_query("UPDATE packages SET package_name=:n, base_price=:bp, discounted_price=:dp, note=:nt WHERE package_id=:id",
+                                  {"n": name, "bp": base_p, "dp": disc_p, "nt": note, "id": edit_id})
+                        # Update products: delete and re-insert
+                        run_query("DELETE FROM package_products WHERE package_id=:id", {"id": edit_id})
+                    else:
+                        run_query("INSERT INTO packages (package_name, base_price, discounted_price, note) VALUES (:n, :bp, :dp, :nt)",
+                                  {"n": name, "bp": base_p, "dp": disc_p, "nt": note})
+                        res = run_query("SELECT package_id FROM packages WHERE package_name=:n ORDER BY package_id DESC LIMIT 1", {"n": name})
+                        edit_id = int(res['package_id'][0])
+                    
+                    for s in sel_items_str:
+                        pid = p_opts[s]
+                        run_query("INSERT INTO package_products (package_id, product_id) VALUES (:pkg, :pid)", {"pkg": edit_id, "pid": pid})
+                    
+                    st.success("บันทึกข้อมูลเรียบร้อย!")
+                    st.rerun()
+            
+            if edit_mode and sub2.form_submit_button("🗑️ ลบแพ็กเกจ", use_container_width=True):
+                run_query("DELETE FROM packages WHERE package_id=:id", {"id": edit_id})
+                run_query("DELETE FROM package_products WHERE package_id=:id", {"id": edit_id})
+                st.success("ลบข้อมูลเรียบร้อย!")
+                st.rerun()
+
+    st.divider()
+    st.subheader("📋 รายการแพ็กเกจทั้งหมด")
+    df_pkgs_list = run_query("""
+        SELECT p.package_id, p.package_name, p.discounted_price, 
+               (SELECT COUNT(*) FROM package_products pp WHERE pp.package_id = p.package_id) as items_count
+        FROM packages p
+    """)
+    if not df_pkgs_list.empty:
+        st.dataframe(df_pkgs_list, hide_index=True, use_container_width=True,
+                     column_config={
+                         "package_id": "ID",
+                         "package_name": "ชื่อหลักสูตร",
+                         "discounted_price": st.column_config.NumberColumn("ราคาขาย", format="฿%,.2f"),
+                         "items_count": "จำนวนคอร์ส"
+                     })
+    else:
+        st.info("ยังไม่มีข้อมูลแพ็กเกจ")
 
 # --- 🏆 ABC Analysis ---
 elif choice == "🏆 ABC Analysis":
@@ -499,7 +609,51 @@ elif choice == "💰 บันทึกการขาย":
         
         st.divider()
         
-        # 2. Add to Cart Section
+        # 2. Package Selector
+        df_pkg = run_query("SELECT * FROM packages")
+        if not df_pkg.empty:
+            with st.expander("🎁 เลือกจากหลักสูตร/แพ็กเกจ (Bundles)", expanded=False):
+                pkg_opts = ["-- เลือกแพ็กเกจ --"] + [f"{r['package_id']} | {r['package_name']} ({r['discounted_price']:,.0f} บ.)" for _, r in df_pkg.iterrows()]
+                sel_pkg_sale = st.selectbox("เลือกหลักสูตรที่ต้องการขาย", pkg_opts)
+                if sel_pkg_sale != "-- เลือกแพ็กเกจ --":
+                    if st.button("🚀 โหลดรายการแพ็กเกจลงตระกร้า", use_container_width=True):
+                        pid = int(sel_pkg_sale.split(" | ")[0])
+                        pkg_info = df_pkg[df_pkg['package_id'] == pid].iloc[0]
+                        # Fetch items
+                        df_pkg_items = run_query("""
+                            SELECT p.product_id, p.product_name, p.price 
+                            FROM package_products pp
+                            JOIN products p ON pp.product_id = p.product_id
+                            WHERE pp.package_id = :id
+                        """, {"id": pid})
+                        
+                        # Clear and load
+                        st.session_state.cart = []
+                        it_total = 0
+                        for _, pit in df_pkg_items.iterrows():
+                            st.session_state.cart.append({
+                                "id": int(pit['product_id']),
+                                "name": pit['product_name'],
+                                "price": float(pit['price']),
+                                "qty": 1,
+                                "total": float(pit['price']),
+                                "is_course": True
+                            })
+                            it_total += pit['price']
+                        
+                        # Add adjustment to reach discounted price
+                        adj = float(pkg_info['discounted_price']) - it_total
+                        st.session_state.cart.append({
+                            "id": 0, # Virtual ID
+                            "name": f"ส่วนลดแพ็กเกจ: {pkg_info['package_name']}",
+                            "price": adj,
+                            "qty": 1,
+                            "total": adj,
+                            "is_course": False
+                        })
+                        st.rerun()
+
+        # 3. Add to Cart Section
         with st.expander("➕ เพิ่มสินค้าลงตระกร้า", expanded=True):
             # Category filter first (Mandatory)
             cat_list = ["-- เลือกหมวดหมู่สินค้า --"] + sorted(df_cat['cat_name'].tolist())
@@ -526,7 +680,8 @@ elif choice == "💰 บันทึกการขาย":
                                 "name": p_info['product_name'],
                                 "price": float(p_info['price']),
                                 "qty": qty_to_add,
-                                "total": float(p_info['price'] * qty_to_add)
+                                "total": float(p_info['price'] * qty_to_add),
+                                "is_course": True # Courses by default
                             })
                             st.rerun()
                 else:
@@ -546,6 +701,7 @@ elif choice == "💰 บันทึกการขาย":
                 cols[1].write(f"{item['price']:,.2f}")
                 cols[2].write(f"x {item['qty']}")
                 cols[3].write(f"**{item['total']:,.2f}**")
+                # cols[4].checkbox("🎓", value=item.get('is_course', False), key=f"cr_{i}") # Credit toggle?
                 if cols[4].button("❌", key=f"del_{i}"):
                     st.session_state.cart.pop(i)
                     st.rerun()
@@ -599,7 +755,17 @@ elif choice == "💰 บันทึกการขาย":
                             VALUES (:bid, :pid, :pname, :qty, :uprice, :sub)
                         """, {"bid": new_bill_id, "pid": item['id'], "pname": item['name'], "qty": item['qty'], "uprice": item['price'], "sub": item['total']})
                         
-                        # Legacy support: also save to sales_history for old dashboard/reports
+                        # If it's a course item, generate Course Credits
+                        if item.get('is_course') and item['id'] > 0:
+                            import datetime as dt
+                            exp_date = (datetime.now() + dt.timedelta(days=730)).date() # 2 Years approx
+                            for _ in range(item['qty']):
+                                run_query("""
+                                    INSERT INTO course_credits (customer_id, bill_id, product_id, expiry_date)
+                                    VALUES (:cid, :bid, :pid, :exp)
+                                """, {"cid": c_id, "bid": new_bill_id, "pid": item['id'], "exp": exp_date})
+
+                        # Legacy support
                         run_query("""
                             INSERT INTO sales_history (customer_id, product_id, amount, payment_method, sale_channel, closed_by_emp_id, sale_date)
                             VALUES (:cid, :pid, :amt, :pay, :ch, :eid, :dt)
@@ -800,6 +966,33 @@ elif choice == "👥 จัดการลูกค้า":
                 st.warning("⚠️ กรุณากรอกชื่อและเลือกจังหวัดให้ครบถ้วน")
         
         if edit_mode:
+            st.divider()
+            st.subheader(f"🎓 สิทธิ์การเรียนคงเหลือ: {name}")
+            df_credits = run_query("""
+                SELECT cc.credit_id, p.product_name, cc.buy_date, cc.expiry_date, cc.status
+                FROM course_credits cc
+                JOIN products p ON cc.product_id = p.product_id
+                WHERE cc.customer_id = :cid
+                ORDER BY cc.expiry_date ASC
+            """, {"cid": edit_id})
+            
+            if not df_credits.empty:
+                # Add "Usage" button for each credit
+                for idx, row in df_credits.iterrows():
+                    c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
+                    c1.write(f"**{row['product_name']}**")
+                    c2.write(f"⏳ หมดอายุ: {row['expiry_date']}")
+                    c3.write(f"สถานะ: `{row['status']}`")
+                    if row['status'] == 'Available':
+                        if c4.button("✅ เช็กอินเรียน", key=f"use_{row['credit_id']}"):
+                            run_query("UPDATE course_credits SET status='Used' WHERE credit_id=:id", {"id": row['credit_id']})
+                            st.success("บันทึกการเข้าเรียนเรียบร้อย!")
+                            st.rerun()
+                    else:
+                        c4.write("✅ เรียนแล้ว")
+            else:
+                st.info("ยังไม่มีสิทธิ์การเรียนบรรจุในบัญชีนี้")
+
             if bc2.button("🗑️ ลบรายชื่อลูกค้านี้", use_container_width=True):
                 run_query("DELETE FROM customers WHERE customer_id = :id", {"id": edit_id})
                 st.warning(f"ลบคุณ {name} เรียบร้อย")
