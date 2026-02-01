@@ -33,7 +33,8 @@ def init_db():
             )''',
             '''CREATE TABLE IF NOT EXISTS categories (
                 cat_id SERIAL PRIMARY KEY, 
-                cat_name TEXT UNIQUE NOT NULL
+                cat_name TEXT UNIQUE NOT NULL,
+                group_name TEXT DEFAULT 'Other'
             )''',
             '''CREATE TABLE IF NOT EXISTS products (
                 product_id SERIAL PRIMARY KEY, 
@@ -135,6 +136,25 @@ def init_db():
         ]
         for q in queries:
             run_query(q)
+        
+        # Add column to 'categories' if it doesn't exist
+        try:
+            run_query("ALTER TABLE categories ADD COLUMN IF NOT EXISTS group_name TEXT DEFAULT 'Other'")
+        except: pass
+
+        # Seed Categories if empty
+        check_cat = run_query("SELECT COUNT(*) as cnt FROM categories")
+        if check_cat['cnt'][0] == 0:
+            seed_data = [
+                ('Full Course', 'Cooking Course'), ('Package', 'Cooking Course'), 
+                ('Japanese Course', 'Cooking Course'), ('Special Course', 'Cooking Course'), 
+                ('Kids Course', 'Cooking Course'), ('E-learning', 'Cooking Course'),
+                ('RomRental / Workshop', 'Service'), ('School Canteen Pinto', 'Service'), 
+                ('Chef Table Dinner', 'Service'), ('Food / Equipment', 'Service'), 
+                ('Naeki', 'Service'), ('Sponsor', 'Service')
+            ]
+            for name, grp in seed_data:
+                run_query("INSERT INTO categories (cat_name, group_name) VALUES (:n, :g)", {"n": name, "g": grp})
         
         # Add columns to 'bills' if they don't exist
         try:
@@ -546,39 +566,87 @@ elif choice == "📊 Marketing Actual":
         if not df_full_cfg.empty:
             # Aggregate Actual Sales
             df_act_sales = run_query("""
-                SELECT p.cat_id, b.sale_channel as channel, SUM(bi.subtotal) as actual_amount
+                SELECT p.cat_id, SUM(bi.subtotal) as actual_amount
                 FROM bill_items bi
                 JOIN bills b ON bi.bill_id = b.bill_id
                 JOIN products p ON bi.product_id = p.product_id
-                GROUP BY p.cat_id, b.sale_channel
+                GROUP BY p.cat_id
             """)
             
-            # Aggregate Actual Leads/Registers
+            # Pull Group info
+            df_full_cfg = run_query("""
+                SELECT mc.*, c.cat_name, c.group_name 
+                FROM marketing_config mc 
+                JOIN categories c ON mc.cat_id = c.cat_id
+                WHERE mc.month_year = :my
+            """, {"my": sel_month_perf})
+
+            summary = df_full_cfg.copy()
+            # Group by Category (Actual sales are per category)
+            # We need to aggregate channel weights to get Category weight
+            cat_summary = summary.groupby(['cat_name', 'group_name', 'cat_id']).agg({
+                'team_weight': 'max', # Assuming team weight is per category/month
+                'channel_weight': 'sum' # The sum of channel weights should be the category's Forecast %
+            }).reset_index()
+            
+            # Join actual sales
+            cat_summary = cat_summary.merge(df_act_sales, on='cat_id', how='left').fillna(0)
+            
+            # Forecast amount = total_high_target * (cat_weight / 100)
+            # Actually, the user's image shows "Forecast %" per row.
+            # I will calculate Forecast % as the sum of channel weights in that category.
+            cat_summary['Forecast %'] = cat_summary['channel_weight']
+            cat_summary['Forecast'] = total_high_target * (cat_summary['Forecast %'] / 100)
+            cat_summary['DIFF'] = cat_summary['actual_amount'] - cat_summary['Forecast']
+            cat_summary['Percentage'] = (cat_summary['actual_amount'] / cat_summary['Forecast'].replace(0, 1) * 100).round(2)
+            
+            # Display Groups like the image
+            for grp in ["Cooking Course", "Service"]:
+                st.markdown(f"### <div style='background-color: #8b0000; color: white; padding: 5px; text-align: center; border-radius: 5px;'>{grp}</div>", unsafe_allow_html=True)
+                df_grp = cat_summary[cat_summary['group_name'] == grp].copy()
+                if not df_grp.empty:
+                    df_disp = df_grp[['cat_name', 'Forecast %', 'Forecast', 'actual_amount', 'Percentage', 'DIFF']]
+                    df_disp.columns = ['Type', 'Forecast %', 'Forecast', 'Actual', 'Percentage', 'DIFF']
+                    
+                    # Totals
+                    t_pct = df_disp['Forecast %'].sum()
+                    t_fore = df_disp['Forecast'].sum()
+                    t_act = df_disp['Actual'].sum()
+                    t_diff = df_disp['DIFF'].sum()
+                    
+                    st.dataframe(df_disp.style.format({
+                        'Forecast %': '{:.1f}%', 'Forecast': '{:,.2f}', 'Actual': '{:,.2f}', 'Percentage': '{:.2f}', 'DIFF': '{:,.2f}'
+                    }), use_container_width=True, hide_index=True)
+                    
+                    st.markdown(f"**Total {grp}:** Forecast {t_fore:,.2f} | Actual {t_act:,.2f} | DIFF {t_diff:,.2f}")
+                else:
+                    st.info(f"ยังไม่มีข้อมูลในกลุ่ม {grp}")
+            
+            st.divider()
+            st.markdown("### <div style='background-color: #3b82f6; color: white; padding: 5px; text-align: center; border-radius: 5px;'>Marketing Actual (Detail)</div>", unsafe_allow_html=True)
+            
+            # Detailed Channel Report
+            detail = summary.merge(df_act_sales, on=['cat_id', 'channel'], how='left', suffixes=('', '_c')).fillna(0)
+            # Register calculation (Simplified)
             df_act_leads = run_query("SELECT cat_id, channel, SUM(lead_count) as leads FROM daily_leads GROUP BY cat_id, channel")
             df_act_regs = run_query("SELECT cat_id, channel, SUM(reg_count) as regs FROM daily_registers GROUP BY cat_id, channel")
+            detail = detail.merge(df_act_leads, on=['cat_id', 'channel'], how='left').fillna(0)
+            detail = detail.merge(df_act_regs, on=['cat_id', 'channel'], how='left').fillna(0)
             
-            # Merge & Calculate
-            summary = df_full_cfg.copy()
-            # Target = Monthly High Target * (Category % - calculated from team weights?) 
-            # Simplified: Category weight is implicitly handled by the user ensuring total weights add up.
-            # Here we assume channel target = total_high_target * (team_w/100) * (chan_w/100)
-            summary['Target Amount'] = total_high_target * (summary['team_weight']/100) * (summary['channel_weight']/100)
+            detail['Target'] = total_high_target * (detail['team_weight']/100) * (detail['channel_weight']/100)
+            detail['DIFT'] = detail['actual_amount_c'] - detail['Target']
             
-            summary = summary.merge(df_act_sales, on=['cat_id', 'channel'], how='left').fillna(0)
-            summary = summary.merge(df_act_leads, on=['cat_id', 'channel'], how='left').fillna(0)
-            summary = summary.merge(df_act_regs, on=['cat_id', 'channel'], how='left').fillna(0)
+            detail_disp = detail[['cat_name', 'team_name', 'channel', 'channel_weight', 'Target', 'lead_forecast', 'leads', 'register_target', 'regs', 'actual_amount_c', 'DIFT']]
+            detail_disp.columns = ['Type', 'Team', 'ช่องทาง', '%', 'Target Sales', 'Lead Forecast', 'Actual Lead', 'Reg Target', 'Actual Reg', 'Actual Sale', 'DIFT']
             
-            summary['DIFT'] = summary['actual_amount'] - summary['Target Amount']
-            summary['% Achievement'] = (summary['actual_amount'] / summary['Target Amount'].replace(0, 1) * 100).round(1)
-            
-            # Reorder columns for display
-            disp = summary[['cat_name', 'team_name', 'channel', 'team_weight', 'Target Amount', 'lead_forecast', 'leads', 'register_target', 'regs', 'actual_amount', 'DIFT', '% Achievement']]
-            disp.columns = ['หมวดหมู่', 'ทีม', 'ช่องทาง', 'Weight %', 'เป้าขาย', 'เป้า Lead', 'ทักจริง', 'เป้า Reg', 'จองจริง', 'ยอดขาย', 'DIFT', '% บรรลุ']
-            
-            st.dataframe(disp.style.format({
-                'เป้าขาย': '{:,.0f}', 'ยอดขาย': '{:,.0f}', 'DIFT': '{:,.0f}', '% บรรลุ': '{:.1f}%'
-            }), use_container_width=True, hide_index=True)
-            
+            def color_dift(val):
+                color = '#ffcdd2' if val < 0 else '#c8e6c9'
+                return f'background-color: {color}'
+
+            st.dataframe(detail_disp.style.format({
+                'Target Sales': '{:,.0f}', 'Actual Sale': '{:,.0f}', 'DIFT': '{:,.0f}', '%': '{:.0f}%'
+            }).applymap(color_dift, subset=['DIFT']), use_container_width=True, hide_index=True)
+
         else:
             st.info("กรุณาตั้งค่าสัดส่วนทีมและช่องทางในแท็บ 'ตั้งค่าเป้าหมาย/ช่องทาง' ก่อนครับ")
 
@@ -1091,17 +1159,21 @@ elif choice == "⚙️ ตั้งค่าระบบ":
         if sel_cat != "➕ เพิ่มหมวดหมู่ใหม่":
             edit_c_mode = True
             edit_c_id = int(sel_cat.split(" | ")[0])
-            curr_cat_name = df_c[df_c['cat_id'] == edit_c_id].iloc[0]['cat_name']
+            row = df_c[df_c['cat_id'] == edit_c_id].iloc[0]
+            curr_cat_name = row['cat_name']
+            curr_grp_name = row['group_name']
             
         with st.form("cat_form", clear_on_submit=True):
             nc = st.text_input("ชื่อหมวดหมู่", value=curr_cat_name)
+            ng = st.selectbox("กลุ่ม (Group)", ["Cooking Course", "Service", "Other"], 
+                             index=["Cooking Course", "Service", "Other"].index(curr_grp_name) if edit_c_mode and curr_grp_name in ["Cooking Course", "Service", "Other"] else 2)
             cb1, cb2 = st.columns([1, 1])
             if cb1.form_submit_button("💾 บันทึก"):
                 if nc:
                     if edit_c_mode:
-                        run_query("UPDATE categories SET cat_name=:name WHERE cat_id=:id", {"name": nc, "id": edit_c_id})
+                        run_query("UPDATE categories SET cat_name=:name, group_name=:grp WHERE cat_id=:id", {"name": nc, "grp": ng, "id": edit_c_id})
                     else:
-                        run_query("INSERT INTO categories (cat_name) VALUES (:name)", {"name": nc})
+                        run_query("INSERT INTO categories (cat_name, group_name) VALUES (:name, :grp)", {"name": nc, "grp": ng})
                     st.rerun()
             if edit_c_mode:
                 if cb2.form_submit_button("🗑️ ลบ"):
@@ -1111,7 +1183,8 @@ elif choice == "⚙️ ตั้งค่าระบบ":
         st.divider()
         st.subheader("📋 หมวดหมู่ทั้งหมด")
         if not df_c.empty:
-            st.dataframe(df_c[["cat_id", "cat_name"]], hide_index=True, use_container_width=True, column_config={"cat_id": "ID", "cat_name": "ชื่อหมวดหมู่"})
+            st.dataframe(df_c[["cat_id", "cat_name", "group_name"]], hide_index=True, use_container_width=True, 
+                         column_config={"cat_id": "ID", "cat_name": "ชื่อหมวดหมู่", "group_name": "กลุ่ม"})
         else:
             st.info("ยังไม่มีหมวดหมู่")
     with t2:
