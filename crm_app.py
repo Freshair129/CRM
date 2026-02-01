@@ -58,6 +58,8 @@ def init_db():
                 gender TEXT, 
                 marital_status TEXT,
                 has_children TEXT,
+                has_children TEXT,
+                birth_date DATE,
                 cust_note TEXT, 
                 assigned_sales_id INTEGER
             )''',
@@ -210,6 +212,7 @@ def init_db():
             run_query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS gender TEXT")
             run_query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS marital_status TEXT")
             run_query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS has_children TEXT")
+            run_query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS birth_date DATE")
         except: pass
 
         # Add columns for Package System
@@ -833,187 +836,198 @@ elif choice == "💰 บันทึกการขาย":
         else:
             st.info("🛒 ตระกร้าว่างเปล่า: กรุณาเพิ่มสินค้าเพื่อเริ่มบันทึกการขาย")
 
-# --- 👥 จัดการลูกค้า ---
+# --- 👥 จัดการลูกค้า (Customer 360) ---
 elif choice == "👥 จัดการลูกค้า":
-    st.header("👥 จัดการฐานข้อมูลลูกค้า")
+    st.header("👥 Customer Management 360°")
     
     df_all_c = run_query("SELECT * FROM customers")
     
+    # 1. Selection State
     if not df_all_c.empty:
         c_opts = ["➕ ลงทะเบียนลูกค้าใหม่"] + [f"{r['customer_id']} | {r['full_name']}" for _, r in df_all_c.iterrows()]
-        sel_edit_c = st.selectbox("📝 เลือกรายชื่อเพื่อ แกไข หรือ ลบข้อมูล", c_opts)
+        sel_c_idx = 0
+        if 'last_selected_cust' in st.session_state and st.session_state.last_selected_cust in c_opts:
+            sel_c_idx = c_opts.index(st.session_state.last_selected_cust)
+        
+        sel_edit_c = st.selectbox("🔍 ค้นหาและเลือกลูกค้า", c_opts, index=sel_c_idx, key="cust_selector")
+        st.session_state.last_selected_cust = sel_edit_c
     else:
         st.info("ยังไม่มีข้อมูลลูกค้า")
         sel_edit_c = "➕ ลงทะเบียนลูกค้าใหม่"
 
-    edit_mode = False
-    edit_id = None
-    curr_data = {}
-    
-    if sel_edit_c != "➕ ลงทะเบียนลูกค้าใหม่":
-        edit_mode = True
-        edit_id = int(sel_edit_c.split(" | ")[0])
-        curr_data = df_all_c[df_all_c['customer_id'] == edit_id].iloc[0].to_dict()
+    # --- Mode: New Customer ---
+    if sel_edit_c == "➕ ลงทะเบียนลูกค้าใหม่":
+        st.subheader("📝 ลงทะเบียนลูกค้าใหม่")
+        with st.form("new_cust_form"):
+            c1, c2 = st.columns(2)
+            name = c1.text_input("ชื่อ-นามสกุลจริง *")
+            nick = c2.text_input("ชื่อเล่น")
+            phone = c1.text_input("เบอร์โทรศัพท์")
+            line = c2.text_input("LINE ID")
+            birth = c1.date_input("วันเกิด (Birth Date)", value=None, min_value=datetime(1950, 1, 1), max_value=datetime.now())
+            gender = c2.selectbox("เพศ", ["ชาย", "หญิง", "อื่นๆ", "ไม่ระบุ"])
+            
+            addr = st.text_area("ที่อยู่จัดส่ง")
+            prov = st.selectbox("จังหวัด", ["-- โปรดเลือก --"] + sorted(list(LOCATION_DATA.keys())))
+            
+            sub_btn = st.form_submit_button("💾 บันทึกข้อมูลลูกค้าใหม่", use_container_width=True, type="primary")
+            if sub_btn and name:
+                check = run_query("SELECT COUNT(*) as cnt FROM customers WHERE full_name = :name", {"name": name})
+                if check['cnt'][0] == 0:
+                    run_query("""
+                        INSERT INTO customers (full_name, nickname, phone, line_id, birth_date, gender, address_detail, province)
+                        VALUES (:name, :nick, :phone, :line, :birth, :gender, :addr, :prov)
+                    """, {"name": name, "nick": nick, "phone": phone, "line": line, "birth": birth, "gender": gender, "addr": addr, "prov": prov})
+                    st.success("บันทึกเรียบร้อย!")
+                    st.rerun()
+                else:
+                    st.error("ชื่อซ้ำในระบบ")
 
-    with st.expander("📝 ฟอร์มข้อมูลลูกค้า", expanded=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            form_key_suffix = str(edit_id) if edit_mode else "new"
-            name = st.text_input("ชื่อ-นามสกุลจริง *", value=curr_data.get('full_name', ""), key=f"c_name_{form_key_suffix}")
-            phone = st.text_input("เบอร์โทร", value=curr_data.get('phone', "") or "", key=f"c_phone_{form_key_suffix}")
-            line = st.text_input("LINE ID", value=curr_data.get('line_id', "") or "", key=f"c_line_{form_key_suffix}")
-            addr_detail = st.text_area("รายละเอียดที่อยู่", value=curr_data.get('address_detail', "") or "", key=f"c_addr_{form_key_suffix}")
-            
-            prov_list = sorted(list(LOCATION_DATA.keys()))
-            p_idx = 0
-            if edit_mode and curr_data.get('province') in prov_list:
-                p_idx = prov_list.index(curr_data.get('province')) + 1
-            
-            sel_prov = st.selectbox("เลือกจังหวัด", ["-- โปรดเลือกจังหวัด --"] + prov_list, index=p_idx, key=f"c_prov_{form_key_suffix}")
-            
-            sel_dist = ""
-            zip_code = ""
-            if sel_prov != "-- โปรดเลือกจังหวัด --":
-                dist_list = sorted(list(LOCATION_DATA[sel_prov].keys()))
-                d_idx = 0
-                if edit_mode and curr_data.get('district') in dist_list:
-                    d_idx = dist_list.index(curr_data.get('district'))
-                
-                sel_dist = st.selectbox("เลือกอำเภอ/เขต", dist_list, index=d_idx, key=f"c_dist_{form_key_suffix}")
-                zip_code = LOCATION_DATA[sel_prov][sel_dist]
-                st.info(f"📍 รหัสไปรษณีย์: {zip_code}")
+    # --- Mode: Existing Customer (360 View) ---
+    else:
+        cid = int(sel_edit_c.split(" | ")[0])
+        cust = df_all_c[df_all_c['customer_id'] == cid].iloc[0]
+        
+        # Calculate Age
+        age_str = "-"
+        if pd.notnull(cust['birth_date']):
+            # If it's a string, try parse
+            if isinstance(cust['birth_date'], str):
+                bdate = datetime.strptime(cust['birth_date'], "%Y-%m-%d").date()
             else:
-                st.selectbox("เลือกอำเภอ/เขต", ["-- กรุณาเลือกจังหวัดก่อน --"], disabled=True, key=f"c_dist_dis_{form_key_suffix}")
+                bdate = cust['birth_date']
+            today = datetime.now().date()
+            age = today.year - bdate.year - ((today.month, today.day) < (bdate.month, bdate.day))
+            age_str = f"{age} ปี"
 
-        with c2:
-            nick = st.text_input("ชื่อเล่น", value=curr_data.get('nickname', "") or "", key=f"c_nick_{form_key_suffix}")
-            fb = st.text_input("Facebook", value=curr_data.get('facebook', "") or "", key=f"c_fb_{form_key_suffix}")
-            ig = st.text_input("Instagram", value=curr_data.get('instagram', "") or "", key=f"c_ig_{form_key_suffix}")
-            
-            df_emp = run_query("SELECT emp_id, emp_name, emp_nickname FROM employees")
-            if not df_emp.empty:
-                df_emp['display_name'] = df_emp['emp_nickname'].apply(lambda x: x if x and str(x).strip() != "" else None).fillna(df_emp['emp_name'])
-                e_names = df_emp['display_name'].tolist()
-            else:
-                e_names = []
-                
-            e_idx = 0
-            if edit_mode and not df_emp.empty:
-                curr_eid = curr_data.get('assigned_sales_id')
-                if curr_eid:
-                    match = df_emp[df_emp['emp_id'] == curr_eid]
-                    if not match.empty:
-                        e_idx = e_names.index(match['display_name'].values[0]) + 1
-            
-            emp_l = st.selectbox("พนักงานผู้ดูแล", ["-- ไม่ระบุ --"] + e_names, index=e_idx, key=f"c_emp_{form_key_suffix}")
+        # Calculate Financial Metrics
+        fin_stats = run_query("""
+            SELECT 
+                COUNT(bill_id) as total_bills,
+                SUM(final_amount) as total_spend,
+                MAX(sale_date) as last_purchase
+            FROM bills WHERE customer_id = :cid
+        """, {"cid": cid})
+        
+        total_spend = fin_stats['total_spend'][0] or 0.0
+        total_bills = fin_stats['total_bills'][0] or 0
+        last_date = fin_stats['last_purchase'][0]
+        
+        # Monthly Spend
+        now = datetime.now()
+        cur_month_spend = run_query("""
+            SELECT SUM(final_amount) as m_spend FROM bills 
+            WHERE customer_id = :cid AND EXTRACT(MONTH FROM sale_date) = :m AND EXTRACT(YEAR FROM sale_date) = :y
+        """, {"cid": cid, "m": now.month, "y": now.year})['m_spend'][0] or 0.0
+
+        # --- Tab Layout ---
+        t_profile, t_history, t_edit = st.tabs(["👤 โปรไฟล์ & ภาพรวม", "🎒 ประวัติ & สิทธิ์เรียน", "⚙️ แก้ไขข้อมูล"])
+        
+        with t_profile:
+            # Header Info
+            h1, h2, h3, h4 = st.columns(4)
+            h1.metric("ชื่อลูกค้า", f"{cust['full_name']} ({cust['nickname'] or '-'})")
+            h2.metric("อายุ", age_str)
+            h3.metric("จังหวัด", cust['province'] or "-")
+            h4.metric("สถานะสมาชิก", "Active", delta="Verified")
             
             st.divider()
-            st.write("📋 **ข้อมูลส่วนตัวเพิ่มเติม**")
-            g_opts = ["-- ระบุเพศ --", "ชาย", "หญิง", "อื่นๆ"]
-            g_idx = 0
-            if edit_mode and curr_data.get('gender') in g_opts:
-                g_idx = g_opts.index(curr_data.get('gender'))
-            gender = st.selectbox("เพศ", g_opts, index=g_idx, key=f"c_gender_{form_key_suffix}")
             
-            m_opts = ["-- สถานะภาพ --", "โสด", "แต่งงานแล้ว", "หย่าร้าง / หม้าย"]
-            m_idx = 0
-            if edit_mode and curr_data.get('marital_status') in m_opts:
-                m_idx = m_opts.index(curr_data.get('marital_status'))
-            marital = st.selectbox("สถานะภาพ", m_opts, index=m_idx, key=f"c_marital_{form_key_suffix}")
+            # Financial Metrics Cards
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("💰 ยอดใช้จ่ายรวม (LTV)", f"฿{total_spend:,.0f}")
+            m2.metric("💸 ยอดเดือนนี้", f"฿{cur_month_spend:,.0f}")
+            m3.metric("🛍️ จำนวนบิลซื้อ", f"{total_bills} ครั้ง")
+            m4.metric("📅 ซื้อล่าสุดเมื่อ", last_date.strftime("%d/%m/%Y") if pd.notnull(last_date) else "-")
             
-            c_opts = ["-- ข้อมูลบุตร --", "ยังไม่มีบุตร", "มีบุตรแล้ว"]
-            c_idx = 0
-            if edit_mode and curr_data.get('has_children') in c_opts:
-                c_idx = c_opts.index(curr_data.get('has_children'))
-            children = st.selectbox("การมีบุตร", c_opts, index=c_idx, key=f"c_children_{form_key_suffix}")
+            st.info(f"📝 **หมายเหตุ:** {cust['cust_note'] or '-'}")
 
-            note = st.text_area("หมายเหตุเพิ่มเติม", value=curr_data.get('cust_note', "") or "", key=f"c_note_{form_key_suffix}")
+        with t_history:
+            c1, c2 = st.columns(2)
             
-
-        btn_label = "💾 บันทึกการแก้ไข" if edit_mode else "💾 ลงทะเบียนลูกค้าใหม่"
-        bc1, bc2 = st.columns([1, 1])
-        
-        if bc1.button(btn_label, use_container_width=True, type="primary"):
-            if name and sel_prov != "-- โปรดเลือกจังหวัด --":
-                e_id = 0
-                if emp_l != "-- ไม่ระบุ --" and not df_emp.empty:
-                    e_id = int(df_emp[df_emp['display_name'] == emp_l]['emp_id'].values[0])
+            with c1:
+                st.subheader("🎓 คอร์สเรียนคงเหลือ")
+                df_credits = run_query("""
+                    SELECT cc.credit_id, p.product_name, cc.expiry_date, cc.status
+                    FROM course_credits cc
+                    JOIN products p ON cc.product_id = p.product_id
+                    WHERE cc.customer_id = :cid
+                    ORDER BY cc.status, cc.expiry_date
+                """, {"cid": cid})
                 
-                if edit_mode:
+                if not df_credits.empty:
+                    for _, row in df_credits.iterrows():
+                        with st.container(border=True):
+                            sc1, sc2 = st.columns([3, 1])
+                            sc1.markdown(f"**{row['product_name']}**")
+                            sc1.caption(f"หมดอายุ: {row['expiry_date']}")
+                            if row['status'] == 'Available':
+                                if sc2.button("เช็กอิน", key=f"chk_{row['credit_id']}"):
+                                    run_query("UPDATE course_credits SET status='Used' WHERE credit_id=:id", {"id": row['credit_id']})
+                                    st.success("Check-in!")
+                                    st.rerun()
+                            else:
+                                sc2.success("ใช้แล้ว")
+                else:
+                    st.info("ไม่มีคอร์สค้างในระบบ")
+
+            with c2:
+                st.subheader("📜 ประวัติการสั่งซื้อ")
+                df_hist = run_query("SELECT bill_id, sale_date, final_amount, payment_method FROM bills WHERE customer_id=:cid ORDER BY sale_date DESC", {"cid": cid})
+                st.dataframe(df_hist, hide_index=True, use_container_width=True, 
+                             column_config={"final_amount": st.column_config.NumberColumn("ยอดเงิน", format="฿%,.2f"), "sale_date": st.column_config.DatetimeColumn("วันที่", format="DD/MM/YYYY")})
+
+        with t_edit:
+            with st.form("edit_cust_form"):
+                ec1, ec2 = st.columns(2)
+                
+                # Left Column: Contact & Personal
+                ename = ec1.text_input("ชื่อจริง", value=cust['full_name'])
+                enick = ec2.text_input("ชื่อเล่น", value=cust['nickname'] or "")
+                
+                ebirth = ec1.date_input("วันเกิด", value=datetime.strptime(cust['birth_date'], "%Y-%m-%d") if pd.notnull(cust['birth_date']) else None)
+                egender = ec2.selectbox("เพศ", ["ชาย", "หญิง", "อื่นๆ"], index=["ชาย", "หญิง", "อื่นๆ"].index(cust['gender']) if cust['gender'] in ["ชาย", "หญิง", "อื่นๆ"] else 0)
+                
+                ephone = ec1.text_input("เบอร์โทร", value=cust['phone'] or "")
+                eline = ec2.text_input("Line ID", value=cust['line_id'] or "")
+                
+                efb = ec1.text_input("Facebook", value=cust['facebook'] or "")
+                eig = ec2.text_input("Instagram", value=cust['instagram'] or "")
+
+                # Address Section
+                eaddr = st.text_area("ที่อยู่", value=cust['address_detail'] or "")
+                eprov = st.selectbox("จังหวัด", ["--"] + sorted(list(LOCATION_DATA.keys())), index=(sorted(list(LOCATION_DATA.keys())).index(cust['province']) + 1) if cust['province'] in LOCATION_DATA else 0)
+                
+                # Family & Status
+                st.divider()
+                fc1, fc2 = st.columns(2)
+                emarital = fc1.selectbox("สถานะภาพ", ["โสด", "แต่งงานแล้ว", "หย่าร้าง"], index=["โสด", "แต่งงานแล้ว", "หย่าร้าง"].index(cust['marital_status']) if cust['marital_status'] in ["โสด", "แต่งงานแล้ว", "หย่าร้าง"] else 0)
+                echildren = fc2.selectbox("มีบุตร", ["ไม่มี", "มีแล้ว"], index=["ไม่มี", "มีแล้ว"].index(cust['has_children']) if cust['has_children'] in ["ไม่มี", "มีแล้ว"] else 0)
+                
+                enote = st.text_area("Note", value=cust['cust_note'] or "")
+                
+                if st.form_submit_button("💾 บันทึกการแก้ไข", type="primary"):
                     run_query("""
                         UPDATE customers SET 
-                        full_name=:name, nickname=:nick, phone=:phone, line_id=:line, facebook=:fb, instagram=:ig, 
-                        address_detail=:addr, province=:prov, district=:dist, zipcode=:zip, cust_note=:note, 
-                        assigned_sales_id=:eid, gender=:gender, marital_status=:marital, has_children=:children
+                        full_name=:n, nickname=:nn, birth_date=:b, gender=:g, 
+                        phone=:p, line_id=:l, facebook=:fb, instagram=:ig,
+                        address_detail=:a, province=:pv, marital_status=:m, has_children=:c,
+                        cust_note=:nt 
                         WHERE customer_id=:cid
-                    """, {"name": name, "nick": nick, "phone": phone, "line": line, "fb": fb, "ig": ig, 
-                          "addr": addr_detail, "prov": sel_prov, "dist": sel_dist, "zip": zip_code, "note": note, 
-                          "eid": e_id, "cid": edit_id, "gender": gender, "marital": marital, "children": children})
-                    st.success(f"✅ อัปเดตข้อมูลคุณ {name} สำเร็จ!")
-                else:
-                    check = run_query("SELECT COUNT(*) as cnt FROM customers WHERE full_name = :name", {"name": name})
-                    if check['cnt'][0] == 0:
-                        run_query("""
-                            INSERT INTO customers 
-                            (full_name, nickname, phone, line_id, facebook, instagram, address_detail, province, district, zipcode, cust_note, assigned_sales_id, gender, marital_status, has_children) 
-                            VALUES (:name, :nick, :phone, :line, :fb, :ig, :addr, :prov, :dist, :zip, :note, :eid, :gender, :marital, :children)
-                        """, {"name": name, "nick": nick, "phone": phone, "line": line, "fb": fb, "ig": ig, 
-                              "addr": addr_detail, "prov": sel_prov, "dist": sel_dist, "zip": zip_code, "note": note, 
-                              "eid": e_id, "gender": gender, "marital": marital, "children": children})
-                        st.success(f"✅ บันทึกคุณ {name} สำเร็จ!")
-                    else:
-                        st.error("❌ ชื่อนี้มีอยู่ในระบบแล้ว")
-                st.rerun()
-            else:
-                st.warning("⚠️ กรุณากรอกชื่อและเลือกจังหวัดให้ครบถ้วน")
-        
-        if edit_mode:
-            st.divider()
-            st.subheader(f"🎓 สิทธิ์การเรียนคงเหลือ: {name}")
-            df_credits = run_query("""
-                SELECT cc.credit_id, p.product_name, cc.buy_date, cc.expiry_date, cc.status
-                FROM course_credits cc
-                JOIN products p ON cc.product_id = p.product_id
-                WHERE cc.customer_id = :cid
-                ORDER BY cc.expiry_date ASC
-            """, {"cid": edit_id})
-            
-            if not df_credits.empty:
-                # Add "Usage" button for each credit
-                for idx, row in df_credits.iterrows():
-                    c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
-                    c1.write(f"**{row['product_name']}**")
-                    c2.write(f"⏳ หมดอายุ: {row['expiry_date']}")
-                    c3.write(f"สถานะ: `{row['status']}`")
-                    if row['status'] == 'Available':
-                        if c4.button("✅ เช็กอินเรียน", key=f"use_{row['credit_id']}"):
-                            run_query("UPDATE course_credits SET status='Used' WHERE credit_id=:id", {"id": row['credit_id']})
-                            st.success("บันทึกการเข้าเรียนเรียบร้อย!")
-                            st.rerun()
-                    else:
-                        c4.write("✅ เรียนแล้ว")
-            else:
-                st.info("ยังไม่มีสิทธิ์การเรียนบรรจุในบัญชีนี้")
-
-            if bc2.button("🗑️ ลบรายชื่อลูกค้านี้", use_container_width=True):
-                run_query("DELETE FROM customers WHERE customer_id = :id", {"id": edit_id})
-                st.warning(f"ลบคุณ {name} เรียบร้อย")
-                st.rerun()
-
-    st.divider()
-    st.subheader("📋 รายชื่อลูกค้าทั้งหมด")
-    search_q = st.text_input("🔍 ค้นหา (ชื่อ หรือ เบอร์โทร)", placeholder="พิมพ์ค้นหาที่นี่...")
-    
-    if not df_all_c.empty:
-        if search_q:
-            df_filtered = df_all_c[df_all_c['full_name'].str.contains(search_q, case=False, na=False) | 
-                                   df_all_c['phone'].str.contains(search_q, case=False, na=False)]
-        else:
-            df_filtered = df_all_c
-        
-        st.dataframe(df_filtered[["customer_id", "full_name", "nickname", "phone", "province"]], 
-                     hide_index=True, use_container_width=True,
-                     column_config={"customer_id": "ID", "full_name": "ชื่อ-นามสกุล", "nickname": "ชื่อเล่น", "phone": "เบอร์โทร", "province": "จังหวัด"})
+                    """,
+                    {"n": ename, "nn": enick, "b": ebirth, "g": egender, 
+                     "p": ephone, "l": eline, "fb": efb, "ig": eig,
+                     "a": eaddr, "pv": eprov, "m": emarital, "c": echildren,
+                     "nt": enote, "cid": cid})
+                    st.success("บันทึกข้อมูลเรียบร้อย!")
+                    st.rerun()
+                
+                st.divider()
+                if st.form_submit_button("🗑️ ลบข้อมูลลูกค้านี้"):
+                    run_query("DELETE FROM customers WHERE customer_id=:id", {"id": cid})
+                    st.session_state.last_selected_cust = None
+                    st.warning("ลบข้อมูลแล้ว")
+                    st.rerun()
 
 
 # --- 👔 จัดการพนักงาน ---
