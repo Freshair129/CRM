@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
+import datetime as dt
 from sqlalchemy import create_engine, text
 
 # --- 1. Database Configuration (PostgreSQL) ---
@@ -1161,11 +1162,15 @@ elif choice == "👔 จัดการพนักงาน":
         # Actually in `bills` table creation earlier: 
         # CREATE TABLE IF NOT EXISTS bills (..., emp_name TEXT, ...) -> yes, stores name.
         
+        # 2. Query Data
+        
+        # Correct Query: Join bills with employees using seller_id
         df_kpi = run_query(f"""
-            SELECT emp_name, COUNT(bill_id) as bills, SUM(final_amount) as sales 
-            FROM bills 
-            WHERE date(sale_date) >= '{start_date}'
-            GROUP BY emp_name
+            SELECT e.emp_name, COUNT(b.bill_id) as bills, SUM(b.final_amount) as sales 
+            FROM bills b
+            JOIN employees e ON b.seller_id = e.emp_id
+            WHERE date(b.sale_date) >= '{start_date}'
+            GROUP BY e.emp_name
             ORDER BY sales DESC
         """)
         
@@ -1194,13 +1199,14 @@ elif choice == "👔 จัดการพนักงาน":
             
             # Get details
             df_prods = run_query(f"""
-                SELECT b.emp_name, p.product_name, SUM(bi.subtotal) as p_total
+                SELECT e.emp_name, p.product_name, SUM(bi.subtotal) as p_total
                 FROM bill_items bi
                 JOIN bills b ON bi.bill_id = b.bill_id
+                JOIN employees e ON b.seller_id = e.emp_id
                 JOIN products p ON bi.product_id = p.product_id
                 WHERE date(b.sale_date) >= '{start_date}'
-                GROUP BY b.emp_name, p.product_name
-                ORDER BY b.emp_name, p_total DESC
+                GROUP BY e.emp_name, p.product_name
+                ORDER BY e.emp_name, p_total DESC
             """)
             
             if not df_prods.empty:
