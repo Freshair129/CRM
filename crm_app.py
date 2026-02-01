@@ -603,13 +603,22 @@ elif choice == "📊 Marketing Actual":
         total_high_target = m_goal_row['high_target'][0] if not m_goal_row.empty else 1000000.0
         
         if not df_full_cfg.empty:
-            # Aggregate Actual Sales
-            df_act_sales = run_query("""
+            # Aggregate Actual Sales (Category Level)
+            df_act_cat = run_query("""
                 SELECT p.cat_id, SUM(bi.subtotal) as actual_amount
                 FROM bill_items bi
                 JOIN bills b ON bi.bill_id = b.bill_id
                 JOIN products p ON bi.product_id = p.product_id
                 GROUP BY p.cat_id
+            """)
+            
+            # Aggregate Actual Sales (Channel Level)
+            df_act_chan = run_query("""
+                SELECT p.cat_id, b.sale_channel as channel, SUM(bi.subtotal) as actual_amount
+                FROM bill_items bi
+                JOIN bills b ON bi.bill_id = b.bill_id
+                JOIN products p ON bi.product_id = p.product_id
+                GROUP BY p.cat_id, b.sale_channel
             """)
             
             # Pull Group info
@@ -628,8 +637,8 @@ elif choice == "📊 Marketing Actual":
                 'channel_weight': 'sum' # The sum of channel weights should be the category's Forecast %
             }).reset_index()
             
-            # Join actual sales
-            cat_summary = cat_summary.merge(df_act_sales, on='cat_id', how='left').fillna(0)
+            # Join actual sales (Category)
+            cat_summary = cat_summary.merge(df_act_cat, on='cat_id', how='left').fillna(0)
             
             # Forecast amount = total_high_target * (cat_weight / 100)
             # Actually, the user's image shows "Forecast %" per row.
@@ -665,7 +674,7 @@ elif choice == "📊 Marketing Actual":
             st.markdown("### <div style='background-color: #3b82f6; color: white; padding: 5px; text-align: center; border-radius: 5px;'>Marketing Actual (Detail)</div>", unsafe_allow_html=True)
             
             # Detailed Channel Report
-            detail = summary.merge(df_act_sales, on=['cat_id', 'channel'], how='left', suffixes=('', '_c')).fillna(0)
+            detail = summary.merge(df_act_chan, on=['cat_id', 'channel'], how='left', suffixes=('', '_c')).fillna(0)
             # Register calculation (Simplified)
             df_act_leads = run_query("SELECT cat_id, channel, SUM(lead_count) as leads FROM daily_leads GROUP BY cat_id, channel")
             df_act_regs = run_query("SELECT cat_id, channel, SUM(reg_count) as regs FROM daily_registers GROUP BY cat_id, channel")
