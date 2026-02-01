@@ -236,6 +236,8 @@ ALL_PROVINCES = sorted(list(LOCATION_DATA.keys()))
 
 
 
+init_db()
+
 # --- 3. UI/UX Aesthetics (Premium Glassmorphism & Modern Color Palette) ---
 st.set_page_config(page_title="CRM Smart Pro", layout="wide", initial_sidebar_state="expanded")
 
