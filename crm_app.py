@@ -208,45 +208,93 @@ ALL_PROVINCES = sorted(list(LOCATION_DATA.keys()))
 
 
 
-init_db()
-
-# --- 3. Sidebar Menu ---
+# --- 3. UI/UX Aesthetics (Premium Glassmorphism & Modern Color Palette) ---
 st.set_page_config(page_title="CRM Smart Pro", layout="wide", initial_sidebar_state="expanded")
 
-# Theme Toggle Logic
 if 'theme' not in st.session_state:
     st.session_state.theme = 'Light'
 
 def toggle_theme():
     st.session_state.theme = 'Dark' if st.session_state.theme == 'Light' else 'Light'
 
-# Custom CSS for Dynamic Theme
+# Unified Design System
 if st.session_state.theme == 'Dark':
-    st.markdown("""
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap');
-        html, body, [class*="css"] { font-family: 'Kanit', sans-serif; color: #ffffff !important; }
-        .stApp { background: #0f172a; }
-        [data-testid="stSidebar"] { background: rgba(30, 41, 59, 0.9) !important; border-right: 1px solid rgba(255, 255, 255, 0.1); }
-        h1, h2, h3, p, span, label, .stMetricValue { color: #ffffff !important; }
-        .stMetricValue { font-weight: 700; background: -webkit-linear-gradient(#00d2ff, #3a7bd5); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        div.stButton > button { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: white !important; }
-        div.stButton > button:hover { background: #3a7bd5; border-color: #00d2ff; }
-        .stDataFrame { background: #1e293b; color: white; border: 1px solid #475569; }
-        .stAlert { background: #1e293b !important; color: white !important; border: 1px solid #334155 !important; }
-    </style>
-    """, unsafe_allow_html=True)
+    bg_color = "#0f172a"
+    card_bg = "rgba(30, 41, 59, 0.7)"
+    text_color = "#f8fafc"
+    border_color = "rgba(255, 255, 255, 0.1)"
+    accent_color = "#38bdf8" # Sky Blue
 else:
-    # Light Mode Enhanced
-    st.markdown("""
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap');
-        html, body, [class*="css"] { font-family: 'Kanit', sans-serif; }
-        h1, h2, h3 { color: #1e293b !important; font-weight: 600; }
-        .stMetric { background: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; }
-        div.stButton > button { border-radius: 8px; font-weight: 500; }
-    </style>
-    """, unsafe_allow_html=True)
+    bg_color = "#f1f5f9"
+    card_bg = "rgba(255, 255, 255, 0.8)"
+    text_color = "#1e293b"
+    border_color = "rgba(0, 0, 0, 0.05)"
+    accent_color = "#0ea5e9" # Blue
+
+st.markdown(f"""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Kanit:wght@300;400;500;600&display=swap');
+
+    html, body, [class*="css"] {{
+        font-family: 'Outfit', 'Kanit', sans-serif;
+    }}
+
+    .stApp {{
+        background-color: {bg_color};
+    }}
+
+    /* Premium Metric Cards */
+    [data-testid="stMetric"] {{
+        background: {card_bg};
+        backdrop-filter: blur(10px);
+        border: 1px solid {border_color};
+        padding: 20px !important;
+        border-radius: 16px !important;
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        transition: transform 0.2s ease-in-out;
+    }}
+    
+    [data-testid="stMetric"]:hover {{
+        transform: translateY(-5px);
+        border-color: {accent_color};
+    }}
+
+    .stMetricValue {{
+        font-size: 2rem !important;
+        font-weight: 700 !important;
+        background: linear-gradient(135deg, {accent_color}, #818cf8);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }}
+
+    /* Sidebar Styling */
+    [data-testid="stSidebar"] {{
+        background-color: {bg_color} !important;
+        border-right: 1px solid {border_color};
+    }}
+
+    /* Tables & DataFrames */
+    .stDataFrame {{
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid {border_color};
+    }}
+
+    /* Custom Headers */
+    h1, h2, h3 {{
+        color: {text_color} !important;
+        letter-spacing: -0.025em;
+    }}
+
+    /* Modern Buttons */
+    div.stButton > button {{
+        border-radius: 10px !important;
+        padding: 0.5rem 1rem !important;
+        font-weight: 600 !important;
+        transition: all 0.2s;
+    }}
+</style>
+""", unsafe_allow_html=True)
 
 with st.sidebar:
     st.title("🚀 CRM System")
@@ -279,75 +327,75 @@ choice = st.session_state.menu_option
 # --- 3. ส่วนการทำงานแต่ละเมนู ---
 
 # --- 📊 Dashboard ---
+# --- 📊 Redesigned Dashboard ---
 if choice == "📊 Dashboard":
-    st.header("📊 รายงานสรุปภาพรวม")
+    st.title("📊 สรุปภาพรวมระบบ (Dashboard)")
     
-    # Updated Query with Category (Synchronized with Marketing Actual)
-    df_sales = run_query("""
-        SELECT b.sale_date as "วันที่", c.full_name as "ลูกค้า", bi.product_name as "สินค้า", 
-               bi.subtotal as "ยอดเงิน", b.sale_channel as "ช่องทาง", cat.cat_name as "หมวดหมู่"
-        FROM bill_items bi
-        JOIN bills b ON bi.bill_id = b.bill_id
-        LEFT JOIN customers c ON b.customer_id = c.customer_id
+    # Data Fetching
+    df_sales_raw = run_query("""
+        SELECT b.sale_date, b.final_amount, b.sale_channel, cat.cat_name
+        FROM bills b
+        JOIN bill_items bi ON b.bill_id = bi.bill_id
         LEFT JOIN products p ON bi.product_id = p.product_id
         LEFT JOIN categories cat ON p.cat_id = cat.cat_id
     """)
     
-    if not df_sales.empty:
-        df_sales['วันที่'] = pd.to_datetime(df_sales['วันที่']).dt.date
-        df_sales['ลูกค้า'] = df_sales['ลูกค้า'].fillna("❌ ข้อมูลถูกลบ")
-        df_sales['สินค้า'] = df_sales['สินค้า'].fillna("❌ ข้อมูลถูกลบ")
-        df_sales['หมวดหมู่'] = df_sales['หมวดหมู่'].fillna("📁 ไม่ระบุหมวดหมู่")
+    if not df_sales_raw.empty:
+        df_sales_raw['sale_date'] = pd.to_datetime(df_sales_raw['sale_date'])
+        now = datetime.now()
         
-        # --- Section 1: Top Metrics ---
-        st.subheader("🎯 เป้าหมายการขายประจำเดือน (Forecast Overview)")
+        # Calculations: Daily, Monthly, Yearly
+        sales_today = df_sales_raw[df_sales_raw['sale_date'].dt.date == now.date()]['final_amount'].sum()
+        sales_month = df_sales_raw[df_sales_raw['sale_date'].dt.month == now.month]['final_amount'].sum()
+        sales_year = df_sales_raw[df_sales_raw['sale_date'].dt.year == now.year]['final_amount'].sum()
         
-        # Pull Monthly goals
-        current_my = datetime.now().strftime("%b-%Y")
-        m_goal = run_query("SELECT * FROM monthly_goals WHERE month_year = :my", {"my": current_my})
+        # Revenue Overview Section
+        st.markdown("### 💰 สรุปรายได้ (Revenue Summary)")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("ยอดขายวันนี้", f"฿{sales_today:,.2f}")
+        m2.metric("ยอดขายเดือนนี้", f"฿{sales_month:,.2f}")
+        m3.metric("ยอดขายปีนี้", f"฿{sales_year:,.2f}")
         
-        if not m_goal.empty:
-            g_high = m_goal['high_target'][0]
-            g_mid = m_goal['mid_target'][0]
-            g_low = m_goal['low_target'][0]
+        st.write("---")
+        
+        # Sales Trend & Category Chart Section
+        col_left, col_right = st.columns([2, 1])
+        
+        with col_left:
+            st.markdown("### 📈 แนวโน้มยอดขาย (เดือนปัจจุบัน)")
+            df_trend = df_sales_raw[df_sales_raw['sale_date'].dt.month == now.month].copy()
+            df_trend['date'] = df_trend['sale_date'].dt.date
+            daily_trend = df_trend.groupby('date')['final_amount'].sum().reset_index()
+            st.area_chart(daily_trend.set_index('date'), use_container_width=True, color="#38bdf8")
             
-            c1, c2, c3 = st.columns(3)
-            total_sales_m = df_sales['ยอดเงิน'].sum() # Simplified to total sales for now
-            with c1:
-                st.metric("🔥 High Target", f"{g_high:,.0f}")
-                st.progress(min(1.0, total_sales_m / g_high))
-            with c2:
-                st.metric("🚀 Mid Target", f"{g_mid:,.0f}")
-                st.progress(min(1.0, total_sales_m / g_mid))
-            with c3:
-                st.metric("🎯 Low Target", f"{g_low:,.0f}")
-                st.progress(min(1.0, total_sales_m / g_low))
-        else:
-            st.warning("⚠️ ยังไม่ได้ตั้งเป้าหมายเดือนนี้ (ไปที่ Marketing Actual -> เป้าหมายเดือน)")
+        with col_right:
+            st.markdown("### 📁 สัดส่วนตามหมวดหมู่")
+            cat_mix = df_sales_raw.groupby('cat_name')['final_amount'].sum().reset_index()
+            st.dataframe(cat_mix.sort_values('final_amount', ascending=False), 
+                         hide_index=True, use_container_width=True,
+                         column_config={"final_amount": st.column_config.NumberColumn("รายได้", format="฿%,.2f"), "cat_name": "หมวดหมู่"})
         
-        st.divider()
+        st.write("---")
         
-        today = datetime.now().date()
-        sales_today = df_sales[df_sales['วันที่'] == today]['ยอดเงิน'].sum()
-        
-        mc1, mc2, mc3 = st.columns(3)
-        mc1.metric("ยอดขายรวมทั้งหมด", f"{df_sales['ยอดเงิน'].sum():,.2f} บาท")
-        mc2.metric("ยอดขายวันนี้", f"{sales_today:,.2f} บาท")
-        mc3.metric("จำนวนบิลรวม", f"{len(df_sales)} รายการ")
-        
-        # --- Section 2: Category Breakdown ---
-        st.subheader("📁 สรุปยอดขายตามหมวดหมู่สินค้า")
-        cat_summary = df_sales.groupby("หมวดหมู่")["ยอดเงิน"].sum().reset_index()
-        cat_summary = cat_summary.sort_values("ยอดเงิน", ascending=False)
-        st.dataframe(cat_summary, hide_index=True, use_container_width=True, 
-                     column_config={"ยอดเงิน": st.column_config.NumberColumn("ยอดเงินรวม", format="฿%,.2f")})
-        
-        # --- Section 3: History ---
-        st.subheader("📜 ประวัติการขายล่าสุด")
-        st.dataframe(df_sales.sort_values('วันที่', ascending=False), use_container_width=True)
-        
-    else: 
-        st.info("ยังไม่มีข้อมูลการขายในระบบ")
+        # Recent Bills Table
+        st.markdown("### 📜 รายการขายล่าสุด")
+        df_recent = run_query("""
+            SELECT b.bill_id, b.sale_date, c.full_name as customer, b.final_amount, b.payment_method
+            FROM bills b
+            LEFT JOIN customers c ON b.customer_id = c.customer_id
+            ORDER BY b.sale_date DESC
+            LIMIT 10
+        """)
+        st.dataframe(df_recent, use_container_width=True, hide_index=True,
+                     column_config={
+                         "bill_id": "เลขที่บิล",
+                         "sale_date": st.column_config.DatetimeColumn("วันที่-เวลา", format="DD/MM/YYYY HH:mm"),
+                         "final_amount": st.column_config.NumberColumn("ยอดรวม", format="฿%,.2f"),
+                         "customer": "ลูกค้า",
+                         "payment_method": "วิธีชำระเงิน"
+                     })
+    else:
+        st.info("👋 ยินดีต้อนรับ! ยังไม่มีข้อมูลการขายในระบบ เริ่มบันทึกการขายเพื่อดูสถิติได้ที่นี่ครับ")
 
 # --- 🏆 ABC Analysis ---
 elif choice == "🏆 ABC Analysis":
