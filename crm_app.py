@@ -375,7 +375,7 @@ if choice == "📊 Dashboard":
 
     # 2. Item-level Query (For Product Mix / Pie Charts)
     df_items = run_query("""
-        SELECT b.sale_date, bi.total, p.product_name, cat.cat_name
+        SELECT b.sale_date, bi.subtotal as total, p.product_name, cat.cat_name
         FROM bill_items bi
         JOIN bills b ON bi.bill_id = b.bill_id
         LEFT JOIN products p ON bi.product_id = p.product_id
@@ -1194,7 +1194,7 @@ elif choice == "👔 จัดการพนักงาน":
             
             # Get details
             df_prods = run_query(f"""
-                SELECT b.emp_name, p.product_name, SUM(bi.total) as p_total
+                SELECT b.emp_name, p.product_name, SUM(bi.subtotal) as p_total
                 FROM bill_items bi
                 JOIN bills b ON bi.bill_id = b.bill_id
                 JOIN products p ON bi.product_id = p.product_id
