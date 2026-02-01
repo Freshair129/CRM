@@ -2369,6 +2369,8 @@ elif choice == "🤖 ถาม AI":
     
     # Database schema for AI context
     db_schema = """
+    ตาราง categories: cat_id, cat_name (ชื่อหมวดหมู่), group_name
+    ตาราง products: product_id, product_name (ชื่อคอร์ส/สินค้า), cat_id (หมวดหมู่), price (ราคา)
     ตาราง customers: customer_id, full_name, nickname, phone, line_id, facebook, instagram, address_detail, province, district, sub_district, zipcode, gender, marital_status, has_children, birth_date, cust_note, assigned_sales_id
     ตาราง bills: bill_id, customer_id, seller_id, total_amount, discount, final_amount, payment_method, sale_date, note
     ตาราง bill_items: item_id, bill_id, product_id, product_name, qty, unit_price, subtotal
@@ -2376,6 +2378,8 @@ elif choice == "🤖 ถาม AI":
     ตาราง contact_logs: log_id, customer_id, contact_type, contact_date, notes, emp_id, follow_up_date
     ตาราง customer_feedback: feedback_id, customer_id, rating, comment, created_at
     ตาราง customer_tags: tag_id, customer_id, tag_name
+    ตาราง packages: package_id, package_name, base_price, discounted_price, note
+    ตาราง package_products: id, package_id, product_id, is_free
     """
     
     system_prompt = f"""คุณเป็น AI Assistant สำหรับระบบ CRM ของ V-School
