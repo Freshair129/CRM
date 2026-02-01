@@ -122,6 +122,7 @@ def init_db():
                 team_weight REAL,
                 channel TEXT,
                 channel_weight REAL,
+                chan_forecast_amount REAL DEFAULT 0,
                 lead_forecast INTEGER DEFAULT 0,
                 register_target INTEGER DEFAULT 0,
                 UNIQUE(month_year, cat_id, team_name, channel)
@@ -144,6 +145,8 @@ def init_db():
         ]
         for q in queries:
             run_query(q)
+        # Migration: Ensure column exists
+        run_query("ALTER TABLE marketing_config ADD COLUMN IF NOT EXISTS chan_forecast_amount REAL DEFAULT 0")
         
         # Add column to 'categories' if it doesn't exist
         try:
@@ -433,12 +436,17 @@ elif choice == "🎯 Goal Tracker":
     # ดึงเป้าหมายจากโต๊ะจริง
     m_goal = run_query("SELECT * FROM monthly_goals WHERE month_year = :my", {"my": current_my})
     
-    if m_goal.empty:
-        st.warning("⚠️ กรุณาไปตั้งเป้าหมายเดือนนี้ที่เมนู 'Marketing Actual' -> 'เป้าหมายเดือน' ก่อนครับ")
+    # SSOT: Calculate High Target from Config Sum
+    df_sum_h = run_query("SELECT SUM(chan_forecast_amount) as h_sum FROM marketing_config WHERE month_year = :my", {"my": current_my})
+    derived_high = float(df_sum_h['h_sum'][0]) if not df_sum_h.empty and df_sum_h['h_sum'][0] is not None else 0.0
+
+    if m_goal.empty and derived_high == 0:
+        st.warning("⚠️ กรุณาไปตั้งเป้าหมายประจำเดือนที่เมนู 'Marketing Actual' -> 'ตั้งค่าเป้าหมาย/ช่องทาง' ก่อนครับ")
     else:
-        target_high = m_goal['high_target'][0]
-        target_mid = m_goal['mid_target'][0]
-        target_low = m_goal['low_target'][0]
+        # Use derived high if available, otherwise fallback to table (for legacy or just in case)
+        target_high = derived_high if derived_high > 0 else (m_goal['high_target'][0] if not m_goal.empty else 1000000.0)
+        target_mid = m_goal['mid_target'][0] if not m_goal.empty else 750000.0
+        target_low = m_goal['low_target'][0] if not m_goal.empty else 500000.0
 
         st.subheader(f"📅 ยอดขายเดือน {now.strftime('%B %Y')}")
         st.markdown(f"### มียอดขายแล้ว: :blue[{current_sales:,.2f}] บาท")
@@ -466,22 +474,31 @@ elif choice == "📊 Marketing Actual":
     
     tab1, tab2, tab3, tab4 = st.tabs(["📈 สรุปผลงาน (Performance)", "📝 บันทึก Leads/Registers", "⚙️ ตั้งค่าเป้าหมาย/ช่องทาง", "🏆 เป้าหมายเดือน"])
     
-    # 1. Monthly Goals Tab
+    # 1. Monthly Goals Tab (Derived SSOT)
     with tab4:
         st.subheader("🏆 ตั้งเป้าหมายรวมประจำเดือน")
+        
+        # Calculate Derived High Target from Config
+        df_sum_h = run_query("SELECT SUM(chan_forecast_amount) as h_sum FROM marketing_config WHERE month_year = :my", {"my": current_month_year})
+        derived_high = float(df_sum_h['h_sum'][0]) if not df_sum_h.empty and df_sum_h['h_sum'][0] is not None else 0.0
+        
+        # Fetch Mid/Low
         existing_m_goal = run_query("SELECT * FROM monthly_goals WHERE month_year = :my", {"my": current_month_year})
         
         col1, col2, col3 = st.columns(3)
-        h_val = col1.number_input("High Target", value=float(existing_m_goal['high_target'][0]) if not existing_m_goal.empty else 1000000.0)
+        with col1:
+            st.metric("🔥 High Target (Sum of Channels)", f"{derived_high:,.2f}")
+            st.caption("💡 มาจากผลรวมเป้าหมายทุกช่องทาง")
+            
         m_val = col2.number_input("Mid Target", value=float(existing_m_goal['mid_target'][0]) if not existing_m_goal.empty else 750000.0)
         l_val = col3.number_input("Low Target", value=float(existing_m_goal['low_target'][0]) if not existing_m_goal.empty else 500000.0)
         
-        if st.button("💾 บันทึกเป้าหมายเดือน"):
+        if st.button("💾 บันทึกเป้าหมาย Mid / Low"):
             run_query("""
                 INSERT INTO monthly_goals (month_year, high_target, mid_target, low_target)
                 VALUES (:my, :h, :m, :l)
                 ON CONFLICT (month_year) DO UPDATE SET high_target=:h, mid_target=:m, low_target=:l
-            """, {"my": current_month_year, "h": h_val, "m": m_val, "l": l_val})
+            """, {"my": current_month_year, "h": derived_high, "m": m_val, "l": l_val})
             st.success("บันทึกเป้าหมายสำเร็จ!")
 
     # 2. Config Tab (Hierarchical Config)
@@ -529,7 +546,7 @@ elif choice == "📊 Marketing Actual":
                 st.caption(f"💡 ทีม {sel_team} มีสัดส่วน {current_tw}% ของหมวดหมู่")
                 
                 chan_name = ec2.selectbox("ช่องทาง", channels + ["Naeki", "อัพเซลล์ลูกค้าเก่า", "Live", "CSQ", "อื่นๆ"])
-                chan_w = ec3.number_input("สัดส่วนช่องทาง (%) *จากยอดรวมหมวดหมู่*", 0.0, 100.0, 10.0)
+                chan_amt = ec3.number_input("เป้าหมายยอดขาย (บาท)", 0.0, 10000000.0, 10000.0)
                 
                 ec4, ec5 = st.columns(2)
                 l_f = ec4.number_input("เป้าหมาย Leads", 0, 5000, 10)
@@ -537,12 +554,12 @@ elif choice == "📊 Marketing Actual":
                 
                 if st.button("➕ เพิ่มลงรายการ"):
                     run_query("""
-                        INSERT INTO marketing_config (month_year, cat_id, team_name, team_weight, channel, channel_weight, lead_forecast, register_target)
-                        VALUES (:my, :cid, :t, :tw, :ch, :cw, :lf, :rt)
+                        INSERT INTO marketing_config (month_year, cat_id, team_name, team_weight, channel, channel_weight, chan_forecast_amount, lead_forecast, register_target)
+                        VALUES (:my, :cid, :t, :tw, :ch, 0, :cfa, :lf, :rt)
                         ON CONFLICT (month_year, cat_id, team_name, channel) 
-                        DO UPDATE SET team_weight=:tw, channel_weight=:cw, lead_forecast=:lf, register_target=:rt
-                    """, {"my": sel_month_cfg, "cid": cid, "t": sel_team, "tw": current_tw, "ch": chan_name, "cw": chan_w, "lf": l_f, "rt": r_t})
-                    st.success(f"เพิ่ม {chan_name} ในทีม {sel_team} เรียบร้อย!")
+                        DO UPDATE SET team_weight=:tw, chan_forecast_amount=:cfa, lead_forecast=:lf, register_target=:rt
+                    """, {"my": sel_month_cfg, "cid": cid, "t": sel_team, "tw": current_tw, "ch": chan_name, "cfa": chan_amt, "lf": l_f, "rt": r_t})
+                    st.success(f"เพิ่ม {chan_name} เรียบร้อย!")
 
             # Display current config for this category
             st.write("### รายการที่ตั้งค่าไว้")
@@ -551,12 +568,12 @@ elif choice == "📊 Marketing Actual":
                 FROM marketing_config mc 
                 JOIN categories c ON mc.cat_id = c.cat_id
                 WHERE mc.month_year = :my AND mc.cat_id = :cid
-                ORDER BY mc.team_name, mc.channel_weight DESC
+                ORDER BY mc.team_name, mc.chan_forecast_amount DESC
             """, {"my": sel_month_cfg, "cid": cid})
             if not df_cfg_list.empty:
-                st.dataframe(df_cfg_list[['team_name', 'channel', 'channel_weight', 'lead_forecast', 'register_target']], 
+                st.dataframe(df_cfg_list[['team_name', 'channel', 'chan_forecast_amount', 'lead_forecast', 'register_target']], 
                              use_container_width=True, hide_index=True,
-                             column_config={"channel_weight": "Weight (%)", "team_name": "Team"})
+                             column_config={"chan_forecast_amount": "Forecast ($)", "team_name": "Team"})
                 if st.button("🗑️ ล้างข้อมูลหมวดหมู่นี้ทั้งหมด"):
                     run_query("DELETE FROM marketing_config WHERE month_year = :my AND cat_id = :cid", {"my": sel_month_cfg, "cid": cid})
                     run_query("DELETE FROM category_team_weights WHERE month_year = :my AND cat_id = :cid", {"my": sel_month_cfg, "cid": cid})
@@ -630,21 +647,17 @@ elif choice == "📊 Marketing Actual":
             """, {"my": sel_month_perf})
 
             summary = df_full_cfg.copy()
-            # Group by Category (Actual sales are per category)
-            # We need to aggregate channel weights to get Category weight
+            # Aggregate to Category level
             cat_summary = summary.groupby(['cat_name', 'group_name', 'cat_id']).agg({
-                'team_weight': 'max', # Assuming team weight is per category/month
-                'channel_weight': 'sum' # The sum of channel weights should be the category's Forecast %
+                'chan_forecast_amount': 'sum'
             }).reset_index()
             
             # Join actual sales (Category)
             cat_summary = cat_summary.merge(df_act_cat, on='cat_id', how='left').fillna(0)
             
-            # Forecast amount = total_high_target * (cat_weight / 100)
-            # Actually, the user's image shows "Forecast %" per row.
-            # I will calculate Forecast % as the sum of channel weights in that category.
-            cat_summary['Forecast %'] = cat_summary['channel_weight']
-            cat_summary['Forecast'] = total_high_target * (cat_summary['Forecast %'] / 100)
+            # Recalculate based on Sum
+            cat_summary['Forecast'] = cat_summary['chan_forecast_amount']
+            cat_summary['Forecast %'] = (cat_summary['Forecast'] / total_high_target * 100).round(1) if total_high_target > 0 else 0
             cat_summary['DIFF'] = cat_summary['actual_amount'] - cat_summary['Forecast']
             cat_summary['Percentage'] = (cat_summary['actual_amount'] / cat_summary['Forecast'].replace(0, 1) * 100).round(2)
             
@@ -681,10 +694,10 @@ elif choice == "📊 Marketing Actual":
             detail = detail.merge(df_act_leads, on=['cat_id', 'channel'], how='left').fillna(0)
             detail = detail.merge(df_act_regs, on=['cat_id', 'channel'], how='left').fillna(0)
             
-            detail['Target'] = total_high_target * (detail['team_weight']/100) * (detail['channel_weight']/100)
-            detail['DIFT'] = detail['actual_amount'] - detail['Target']
+            detail['Forecast %'] = (detail['chan_forecast_amount'] / total_high_target * 100).round(1) if total_high_target > 0 else 0
+            detail['DIFT'] = detail['actual_amount'] - detail['chan_forecast_amount']
             
-            detail_disp = detail[['cat_name', 'team_name', 'channel', 'channel_weight', 'Target', 'lead_forecast', 'leads', 'register_target', 'regs', 'actual_amount', 'DIFT']]
+            detail_disp = detail[['cat_name', 'team_name', 'channel', 'Forecast %', 'chan_forecast_amount', 'lead_forecast', 'leads', 'register_target', 'regs', 'actual_amount', 'DIFT']]
             detail_disp.columns = ['Type', 'Team', 'ช่องทาง', '%', 'Target Sales', 'Lead Forecast', 'Actual Lead', 'Reg Target', 'Actual Reg', 'Actual Sale', 'DIFT']
             
             def color_dift(val):
