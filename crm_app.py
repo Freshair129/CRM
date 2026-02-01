@@ -365,71 +365,121 @@ choice = st.session_state.menu_option
 if choice == "📊 Dashboard":
     st.title("📊 สรุปภาพรวมระบบ (Dashboard)")
     
-    # Data Fetching
-    df_sales_raw = run_query("""
-        SELECT b.sale_date, b.final_amount, b.sale_channel, cat.cat_name
-        FROM bills b
-        JOIN bill_items bi ON b.bill_id = bi.bill_id
+    # 1. Main Revenue Query (Bills ONLY - for accurate totals)
+    df_bills = run_query("SELECT sale_date, final_amount FROM bills")
+    if not df_bills.empty:
+        df_bills['sale_date'] = pd.to_datetime(df_bills['sale_date'])
+        df_bills['date'] = df_bills['sale_date'].dt.date
+    else:
+        df_bills = pd.DataFrame(columns=['sale_date', 'final_amount', 'date'])
+
+    # 2. Item-level Query (For Product Mix / Pie Charts)
+    df_items = run_query("""
+        SELECT b.sale_date, bi.total, p.product_name, cat.cat_name
+        FROM bill_items bi
+        JOIN bills b ON bi.bill_id = b.bill_id
         LEFT JOIN products p ON bi.product_id = p.product_id
         LEFT JOIN categories cat ON p.cat_id = cat.cat_id
     """)
+    if not df_items.empty:
+        df_items['sale_date'] = pd.to_datetime(df_items['sale_date'])
+        df_items['date'] = df_items['sale_date'].dt.date
+
+    # --- Calculations ---
+    now = datetime.now()
+    today = now.date()
     
-    if not df_sales_raw.empty:
-        df_sales_raw['sale_date'] = pd.to_datetime(df_sales_raw['sale_date'])
-        now = datetime.now()
-        
-        # Calculations: Daily, Monthly, Yearly
-        sales_today = df_sales_raw[df_sales_raw['sale_date'].dt.date == now.date()]['final_amount'].sum()
-        sales_month = df_sales_raw[df_sales_raw['sale_date'].dt.month == now.month]['final_amount'].sum()
-        sales_year = df_sales_raw[df_sales_raw['sale_date'].dt.year == now.year]['final_amount'].sum()
-        
-        # Revenue Overview Section
-        st.markdown("### 💰 สรุปรายได้ (Revenue Summary)")
-        m1, m2, m3 = st.columns(3)
-        m1.metric("ยอดขายวันนี้", f"฿{sales_today:,.2f}")
-        m2.metric("ยอดขายเดือนนี้", f"฿{sales_month:,.2f}")
-        m3.metric("ยอดขายปีนี้", f"฿{sales_year:,.2f}")
-        
-        st.write("---")
-        
-        # Sales Trend & Category Chart Section
-        col_left, col_right = st.columns([2, 1])
-        
-        with col_left:
-            st.markdown("### 📈 แนวโน้มยอดขาย (เดือนปัจจุบัน)")
-            df_trend = df_sales_raw[df_sales_raw['sale_date'].dt.month == now.month].copy()
-            df_trend['date'] = df_trend['sale_date'].dt.date
+    # Revenue Metrcis
+    sales_today = df_bills[df_bills['date'] == today]['final_amount'].sum() if not df_bills.empty else 0
+    sales_month = df_bills[(df_bills['sale_date'].dt.month == now.month) & (df_bills['sale_date'].dt.year == now.year)]['final_amount'].sum() if not df_bills.empty else 0
+    sales_year = df_bills[df_bills['sale_date'].dt.year == now.year]['final_amount'].sum() if not df_bills.empty else 0
+    
+    # Revenue Overview Section
+    st.markdown("### 💰 สรุปรายได้ (Revenue Summary)")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("ยอดขายวันนี้", f"฿{sales_today:,.2f}")
+    m2.metric("ยอดขายเดือนนี้", f"฿{sales_month:,.2f}")
+    m3.metric("ยอดขายปีนี้", f"฿{sales_year:,.2f}")
+    
+    st.write("---")
+    
+    # --- Sales Trend & Pie Charts ---
+    col_left, col_right = st.columns([2, 1])
+    
+    with col_left:
+        st.markdown("### 📈 แนวโน้มยอดขาย (เดือนนี้)")
+        if not df_bills.empty:
+            df_trend = df_bills[(df_bills['sale_date'].dt.month == now.month) & (df_bills['sale_date'].dt.year == now.year)].copy()
             daily_trend = df_trend.groupby('date')['final_amount'].sum().reset_index()
             st.area_chart(daily_trend.set_index('date'), use_container_width=True, color="#38bdf8")
+        else:
+            st.info("ไม่มีข้อมูลยอดขายเดือนนี้")
+
+    with col_right:
+        st.markdown("### 🥧 สัดส่วนสินค้า (Product Mix)")
+        
+        # Tabs for Daily / Weekly / Monthly
+        t_d, t_w, t_m = st.tabs(["รายวัน", "รายสัปดาห์", "รายเดือน"])
+        
+        def plot_pie(df_source, title):
+            if df_source.empty:
+                st.caption(f"ไม่มีข้อมูล {title}")
+                return
             
-        with col_right:
-            st.markdown("### 📁 สัดส่วนตามหมวดหมู่")
-            cat_mix = df_sales_raw.groupby('cat_name')['final_amount'].sum().reset_index()
-            st.dataframe(cat_mix.sort_values('final_amount', ascending=False), 
-                         hide_index=True, use_container_width=True,
-                         column_config={"final_amount": st.column_config.NumberColumn("รายได้", format="฿%,.2f"), "cat_name": "หมวดหมู่"})
+            # Group by Product
+            mix = df_source.groupby('product_name')['total'].sum().reset_index()
+            mix = mix.sort_values('total', ascending=False).head(10) # Top 10
+            
+            import altair as alt
+            base = alt.Chart(mix).encode(theta=alt.Theta("total", stack=True))
+            pie = base.mark_arc(outerRadius=120, innerRadius=60).encode(
+                color=alt.Color("product_name"),
+                order=alt.Order("total", sort="descending"),
+                tooltip=["product_name", alt.Tooltip("total", format=",.0f")]
+            )
+            text = base.mark_text(radius=140).encode(
+                text=alt.Text("total", format=",.0f"),
+                order=alt.Order("total", sort="descending"),
+                color=alt.value(text_color) 
+            )
+            st.altair_chart(pie + text, use_container_width=True)
+
+        with t_d:
+            if not df_items.empty:
+                df_d = df_items[df_items['date'] == today]
+                plot_pie(df_d, "วันนี้")
         
-        st.write("---")
-        
-        # Recent Bills Table
-        st.markdown("### 📜 รายการขายล่าสุด")
-        df_recent = run_query("""
-            SELECT b.bill_id, b.sale_date, c.full_name as customer, b.final_amount, b.payment_method
-            FROM bills b
-            LEFT JOIN customers c ON b.customer_id = c.customer_id
-            ORDER BY b.sale_date DESC
-            LIMIT 10
-        """)
-        st.dataframe(df_recent, use_container_width=True, hide_index=True,
-                     column_config={
-                         "bill_id": "เลขที่บิล",
-                         "sale_date": st.column_config.DatetimeColumn("วันที่-เวลา", format="DD/MM/YYYY HH:mm"),
-                         "final_amount": st.column_config.NumberColumn("ยอดรวม", format="฿%,.2f"),
-                         "customer": "ลูกค้า",
-                         "payment_method": "วิธีชำระเงิน"
-                     })
-    else:
-        st.info("👋 ยินดีต้อนรับ! ยังไม่มีข้อมูลการขายในระบบ เริ่มบันทึกการขายเพื่อดูสถิติได้ที่นี่ครับ")
+        with t_w:
+            if not df_items.empty:
+                # Last 7 days
+                week_ago = today - timedelta(days=7)
+                df_w = df_items[df_items['date'] >= week_ago]
+                plot_pie(df_w, "7 วันล่าสุด")
+
+        with t_m:
+            if not df_items.empty:
+                df_m = df_items[(df_items['sale_date'].dt.month == now.month) & (df_items['sale_date'].dt.year == now.year)]
+                plot_pie(df_m, "เดือนนี้")
+
+    st.write("---")
+    
+    # Recent Bills Table
+    st.markdown("### 📜 รายการขายล่าสุด")
+    df_recent = run_query("""
+        SELECT b.bill_id, b.sale_date, c.full_name as customer, b.final_amount, b.payment_method
+        FROM bills b
+        LEFT JOIN customers c ON b.customer_id = c.customer_id
+        ORDER BY b.sale_date DESC
+        LIMIT 10
+    """)
+    st.dataframe(df_recent, use_container_width=True, hide_index=True,
+                 column_config={
+                     "bill_id": "เลขที่บิล",
+                     "sale_date": st.column_config.DatetimeColumn("วันที่-เวลา", format="DD/MM/YYYY HH:mm"),
+                     "final_amount": st.column_config.NumberColumn("ยอดรวม", format="฿%,.2f"),
+                     "customer": "ลูกค้า",
+                     "payment_method": "วิธีชำระเงิน"
+                 })
 
 # --- 🎁 ตั้งค่าแพ็กเกจ (Package Management) ---
 elif choice == "🎁 ตั้งค่าแพ็กเกจ":
