@@ -171,73 +171,51 @@ init_db()
 # --- 3. Sidebar Menu ---
 st.set_page_config(page_title="CRM Smart Pro", layout="wide", initial_sidebar_state="expanded")
 
-# Custom CSS for Premium Dark Mode Aesthetics
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500&display=swap');
-    
-    html, body, [class*="css"]  {
-        font-family: 'Kanit', sans-serif;
-    }
-    
-    /* Global Background Gradient */
-    .stApp {
-        background: radial-gradient(circle at top right, #1e293b, #0f172a);
-    }
+# Theme Toggle Logic
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'Light'
 
-    /* Sidebar Glassmorphism */
-    [data-testid="stSidebar"] {
-        background: rgba(30, 41, 59, 0.7) !important;
-        backdrop-filter: blur(10px);
-        border-right: 1px solid rgba(255, 255, 255, 0.1);
-    }
+def toggle_theme():
+    st.session_state.theme = 'Dark' if st.session_state.theme == 'Light' else 'Light'
 
-    /* Card-like containers using glassmorphism */
-    div.stButton > button {
-        border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        background: rgba(255, 255, 255, 0.05);
-        transition: all 0.3s ease;
-    }
-    div.stButton > button:hover {
-        background: linear-gradient(90deg, #00d2ff 0%, #3a7bd5 100%);
-        color: white;
-        transform: translateY(-2px);
-        box-shadow: 0 4px 15px rgba(0, 210, 255, 0.3);
-    }
+# Custom CSS for Dynamic Theme
+if st.session_state.theme == 'Dark':
+    st.markdown("""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap');
+        html, body, [class*="css"] { font-family: 'Kanit', sans-serif; color: #ffffff !important; }
+        .stApp { background: #0f172a; }
+        [data-testid="stSidebar"] { background: rgba(30, 41, 59, 0.9) !important; border-right: 1px solid rgba(255, 255, 255, 0.1); }
+        h1, h2, h3, p, span, label, .stMetricValue { color: #ffffff !important; }
+        .stMetricValue { font-weight: 700; background: -webkit-linear-gradient(#00d2ff, #3a7bd5); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        div.stButton > button { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: white !important; }
+        div.stButton > button:hover { background: #3a7bd5; border-color: #00d2ff; }
+        .stDataFrame { background: #1e293b; color: white; border: 1px solid #475569; }
+        .stAlert { background: #1e293b !important; color: white !important; border: 1px solid #334155 !important; }
+    </style>
+    """, unsafe_allow_html=True)
+else:
+    # Light Mode Enhanced
+    st.markdown("""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap');
+        html, body, [class*="css"] { font-family: 'Kanit', sans-serif; }
+        h1, h2, h3 { color: #1e293b !important; font-weight: 600; }
+        .stMetric { background: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; }
+        div.stButton > button { border-radius: 8px; font-weight: 500; }
+    </style>
+    """, unsafe_allow_html=True)
 
-    /* Metric Styling */
-    [data-testid="stMetricValue"] {
-        font-size: 1.8rem !important;
-        font-weight: 600;
-        background: -webkit-linear-gradient(#00d2ff, #3a7bd5);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-
-    /* DataFrame styling */
-    .stDataFrame {
-        border-radius: 15px;
-        overflow: hidden;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    /* Headings */
-    h1, h2, h3 {
-        color: #00d2ff !important;
-    }
-    
-    /* Success/Info boxes */
-    .stAlert {
-        background: rgba(255, 255, 255, 0.03) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        backdrop-filter: blur(5px);
-        color: #fafafa !important;
-    }
-</style>
-""", unsafe_allow_html=True)
 with st.sidebar:
     st.title("🚀 CRM System")
+    
+    # Theme Toggle Button
+    theme_icon = "🌞" if st.session_state.theme == "Light" else "🌙"
+    st.button(f"{theme_icon} Switch to { 'Dark' if st.session_state.theme == 'Light' else 'Light' } Mode", 
+              on_click=toggle_theme, use_container_width=True)
+    
+    st.markdown("---")
+    
     if 'menu_option' not in st.session_state: st.session_state.menu_option = "📊 Dashboard"
     def set_menu(option): st.session_state.menu_option = option
     st.button("📊 Dashboard", on_click=set_menu, args=("📊 Dashboard",), use_container_width=True)
