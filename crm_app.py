@@ -132,6 +132,14 @@ def init_db():
                 channel TEXT,
                 cat_id INTEGER,
                 reg_count INTEGER DEFAULT 0
+            )''',
+            '''CREATE TABLE IF NOT EXISTS category_team_weights (
+                weight_id SERIAL PRIMARY KEY,
+                month_year TEXT,
+                cat_id INTEGER,
+                mkt_weight REAL DEFAULT 70,
+                sale_weight REAL DEFAULT 30,
+                UNIQUE(month_year, cat_id)
             )'''
         ]
         for q in queries:
@@ -483,44 +491,75 @@ elif choice == "📊 Marketing Actual":
             sc1, sc2 = st.columns(2)
             sel_cat_cfg = sc1.selectbox("หมวดหมู่", df_cat['cat_name'].tolist(), key="cfg_cat")
             sel_month_cfg = sc2.text_input("เดือน/ปี", value=current_month_year, key="cfg_my")
+            cid = int(df_cat[df_cat['cat_name'] == sel_cat_cfg]['cat_id'].values[0])
+
+            st.write("---")
+            st.write("### 1. กำหนดสัดส่วนทีมหลัก (MKT vs Sale)")
             
-            # Category Target calculation based on High target (default)
-            m_goal = run_query("SELECT high_target FROM monthly_goals WHERE month_year = :my", {"my": sel_month_cfg})
-            cat_target_base = m_goal['high_target'][0] if not m_goal.empty else 1000000.0
+            # Fetch existing weights
+            df_curr_w = run_query("SELECT mkt_weight, sale_weight FROM category_team_weights WHERE month_year = :my AND cat_id = :cid", 
+                                  {"my": sel_month_cfg, "cid": cid})
             
-            with st.expander("➕ เพิ่ม/แก้ไข ช่องทาง", expanded=True):
+            if 'mkt_w' not in st.session_state: 
+                st.session_state.mkt_w = float(df_curr_w['mkt_weight'][0]) if not df_curr_w.empty else 70.0
+            if 'sale_w' not in st.session_state: 
+                st.session_state.sale_w = float(df_curr_w['sale_weight'][0]) if not df_curr_w.empty else 30.0
+
+            def sync_mkt(): st.session_state.sale_w = 100.0 - st.session_state.mkt_w
+            def sync_sale(): st.session_state.mkt_w = 100.0 - st.session_state.sale_w
+
+            wc1, wc2, wc3 = st.columns([2, 2, 1])
+            wc1.number_input("สัดส่วน MKT (%)", 0.0, 100.0, step=1.0, key="mkt_w", on_change=sync_mkt)
+            wc2.number_input("สัดส่วน Sale (%)", 0.0, 100.0, step=1.0, key="sale_w", on_change=sync_sale)
+            if wc3.button("💾 บันทึกสัดส่วน", use_container_width=True):
+                run_query("""
+                    INSERT INTO category_team_weights (month_year, cat_id, mkt_weight, sale_weight)
+                    VALUES (:my, :cid, :mw, :sw)
+                    ON CONFLICT (month_year, cat_id) DO UPDATE SET mkt_weight=:mw, sale_weight=:sw
+                """, {"my": sel_month_cfg, "cid": cid, "mw": st.session_state.mkt_w, "sw": st.session_state.sale_w})
+                st.success("บันทึกสัดส่วนทีมสำเร็จ!")
+
+            st.write("---")
+            st.write("### 2. เพิ่มช่องทางการตลาด (Channels)")
+            with st.expander("➕ เพิ่มช่องทางใหม่", expanded=True):
                 ec1, ec2, ec3 = st.columns(3)
-                team_name = ec1.selectbox("กลุ่มทีม/ประเภท", ["MKT 70%", "MKT 60%", "MKT 100%", "Sale 30%", "Sale 40%", "Sale 0%"])
+                sel_team = ec1.selectbox("เลือกทีม", ["MKT", "Sale"])
+                # Show weight label for context
+                current_tw = st.session_state.mkt_w if sel_team == "MKT" else st.session_state.sale_w
+                st.caption(f"💡 ทีม {sel_team} มีสัดส่วน {current_tw}% ของหมวดหมู่")
+                
                 chan_name = ec2.selectbox("ช่องทาง", channels + ["Naeki", "อัพเซลล์ลูกค้าเก่า", "Live", "CSQ", "อื่นๆ"])
-                team_w = ec3.number_input("สัดส่วนทีม (%)", 0, 100, 70)
+                chan_w = ec3.number_input("สัดส่วนช่องทาง (%) *จากยอดรวมหมวดหมู่*", 0.0, 100.0, 10.0)
                 
-                ec4, ec5, ec6 = st.columns(3)
-                chan_w = ec4.number_input("สัดส่วนช่องทาง (%)", 0, 100, 20)
-                lead_f = ec5.number_input("เป้าหมาย Leads", 0, 1000, 10)
-                reg_t = ec6.number_input("เป้าหมาย Register", 0, 1000, 5)
+                ec4, ec5 = st.columns(2)
+                l_f = ec4.number_input("เป้าหมาย Leads", 0, 5000, 10)
+                r_t = ec5.number_input("เป้าหมาย Register", 0, 5000, 5)
                 
-                if st.button("💾 บันทึกการตั้งค่า"):
-                    cid = int(df_cat[df_cat['cat_name'] == sel_cat_cfg]['cat_id'].values[0])
+                if st.button("➕ เพิ่มลงรายการ"):
                     run_query("""
                         INSERT INTO marketing_config (month_year, cat_id, team_name, team_weight, channel, channel_weight, lead_forecast, register_target)
                         VALUES (:my, :cid, :t, :tw, :ch, :cw, :lf, :rt)
                         ON CONFLICT (month_year, cat_id, team_name, channel) 
                         DO UPDATE SET team_weight=:tw, channel_weight=:cw, lead_forecast=:lf, register_target=:rt
-                    """, {"my": sel_month_cfg, "cid": cid, "t": team_name, "tw": team_w, "ch": chan_name, "cw": chan_w, "lf": lead_f, "rt": reg_t})
-                    st.success("บันทึกโครงสร้างสำเร็จ!")
-            
-            # Display current config
+                    """, {"my": sel_month_cfg, "cid": cid, "t": sel_team, "tw": current_tw, "ch": chan_name, "cw": chan_w, "lf": l_f, "rt": r_t})
+                    st.success(f"เพิ่ม {chan_name} ในทีม {sel_team} เรียบร้อย!")
+
+            # Display current config for this category
+            st.write("### รายการที่ตั้งค่าไว้")
             df_cfg_list = run_query("""
                 SELECT mc.*, c.cat_name 
                 FROM marketing_config mc 
                 JOIN categories c ON mc.cat_id = c.cat_id
-                WHERE mc.month_year = :my
-            """, {"my": sel_month_cfg})
+                WHERE mc.month_year = :my AND mc.cat_id = :cid
+                ORDER BY mc.team_name, mc.channel_weight DESC
+            """, {"my": sel_month_cfg, "cid": cid})
             if not df_cfg_list.empty:
-                st.dataframe(df_cfg_list[['cat_name', 'team_name', 'team_weight', 'channel', 'channel_weight', 'lead_forecast', 'register_target']], use_container_width=True)
-                if st.button("🗑️ ล้างการตั้งค่าหมวดหมู่นี้"):
-                    cid = int(df_cat[df_cat['cat_name'] == sel_cat_cfg]['cat_id'].values[0])
+                st.dataframe(df_cfg_list[['team_name', 'channel', 'channel_weight', 'lead_forecast', 'register_target']], 
+                             use_container_width=True, hide_index=True,
+                             column_config={"channel_weight": "Weight (%)", "team_name": "Team"})
+                if st.button("🗑️ ล้างข้อมูลหมวดหมู่นี้ทั้งหมด"):
                     run_query("DELETE FROM marketing_config WHERE month_year = :my AND cat_id = :cid", {"my": sel_month_cfg, "cid": cid})
+                    run_query("DELETE FROM category_team_weights WHERE month_year = :my AND cat_id = :cid", {"my": sel_month_cfg, "cid": cid})
                     st.rerun()
 
     # 3. Data Entry Tab
