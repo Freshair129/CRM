@@ -112,7 +112,9 @@ def init_db():
                 month_year TEXT UNIQUE,
                 high_target REAL,
                 mid_target REAL,
-                low_target REAL
+                low_target REAL,
+                mid_pct REAL DEFAULT 75,
+                low_pct REAL DEFAULT 50
             )''',
             '''CREATE TABLE IF NOT EXISTS marketing_config (
                 config_id SERIAL PRIMARY KEY,
@@ -141,12 +143,21 @@ def init_db():
                 mkt_weight REAL DEFAULT 70,
                 sale_weight REAL DEFAULT 30,
                 UNIQUE(month_year, cat_id)
+            )''',
+            '''CREATE TABLE IF NOT EXISTS individual_goals (
+                goal_id SERIAL PRIMARY KEY,
+                month_year TEXT,
+                emp_id INTEGER,
+                target_amount REAL DEFAULT 0,
+                UNIQUE(month_year, emp_id)
             )'''
         ]
         for q in queries:
             run_query(q)
         # Migration: Ensure column exists
         run_query("ALTER TABLE marketing_config ADD COLUMN IF NOT EXISTS chan_forecast_amount REAL DEFAULT 0")
+        run_query("ALTER TABLE monthly_goals ADD COLUMN IF NOT EXISTS mid_pct REAL DEFAULT 75")
+        run_query("ALTER TABLE monthly_goals ADD COLUMN IF NOT EXISTS low_pct REAL DEFAULT 50")
         
         # Add column to 'categories' if it doesn't exist
         try:
@@ -453,16 +464,70 @@ elif choice == "🎯 Goal Tracker":
         
         # Progress towards targets
         for name, target, color in [("🎯 Low Target", target_low, "orange"), ("🚀 Mid Target", target_mid, "blue"), ("🔥 High Target", target_high, "green")]:
-            progress = min(100.0, (current_sales / target * 100))
+            progress = min(100.0, (current_sales / target * 100)) if target > 0 else 0
             rem = max(0.0, target - current_sales)
             
-            st.write(f"**{name}** (฿{target:,.0f})")
             if rem > 0:
                 st.info(f"สะสมแล้ว {progress:.1f}% | ต้องทำเพิ่มอีก :red[{rem:,.2f}] บาท ถึงจะเข้าเป้า")
             else:
-                st.success(f"✅ บรรลุเป้าหมาย {name} เรียบร้อย! (เกินเป้า {abs(rem):,.2f} บาท)")
-            st.progress(progress / 100)
-            st.write("")
+                st.success(f"✅ บรรลุเป้าหมาย {name} เรียบร้อย! (สะสม {progress:.1f}%)")
+        st.progress(progress / 100)
+        st.write("")
+
+    st.divider()
+    st.subheader("👤 เป้าหมายรายบุคคล (Individual Sales Targets)")
+    
+    # Logic to fetch total Sale Team Forecast (SSOT)
+    df_sale_total = run_query("SELECT SUM(chan_forecast_amount) as total FROM marketing_config WHERE month_year = :my AND team_name = 'Sale'", {"my": current_my})
+    total_sale_forecast = float(df_sale_total['total'][0]) if not df_sale_total.empty and df_sale_total['total'][0] is not None else 0.0
+    
+    st.info(f"💡 ยอดรวมเป้าหมายทีม Sale จาก SSOT: **{total_sale_forecast:,.2f}** บาท")
+    
+    col_a, col_b = st.columns([1, 4])
+    if col_a.button("🔄 Sync จาก Sale Forecast", use_container_width=True):
+        # Find all employees in Sales
+        df_salespeople = run_query("SELECT emp_id FROM employees WHERE position LIKE '%Sale%'")
+        if not df_salespeople.empty:
+            count = len(df_salespeople)
+            per_person = total_sale_forecast / count
+            for eid in df_salespeople['emp_id']:
+                run_query("""
+                    INSERT INTO individual_goals (month_year, emp_id, target_amount)
+                    VALUES (:my, :eid, :amt)
+                    ON CONFLICT (month_year, emp_id) DO UPDATE SET target_amount = :amt
+                """, {"my": current_my, "eid": int(eid), "amt": per_person})
+            st.success(f"กระจายเป้าหมายให้พนักงาน {count} ท่าน เรียบร้อยแล้ว (คนละ {per_person:,.2f} บาท)")
+            st.rerun()
+        else:
+            st.error("ไม่พบพนักงานในตำแหน่ง Sale")
+
+    # Display Individual Progress
+    df_ind_goals = run_query("""
+        SELECT ig.target_amount, e.emp_name, e.emp_id
+        FROM individual_goals ig
+        JOIN employees e ON ig.emp_id = e.emp_id
+        WHERE ig.month_year = :my
+    """, {"my": current_my})
+    
+    if not df_ind_goals.empty:
+        for idx, row in df_ind_goals.iterrows():
+            # Get actual sales for this person
+            df_p_sales = run_query("""
+                SELECT SUM(final_amount) as total FROM bills 
+                WHERE seller_id = :eid AND sale_date >= :start
+            """, {"eid": int(row['emp_id']), "start": month_start.date()})
+            p_actual = float(df_p_sales['total'][0]) if not df_p_sales.empty and df_p_sales['total'][0] is not None else 0.0
+            
+            p_target = float(row['target_amount'])
+            p_progress = min(100.0, (p_actual / p_target * 100)) if p_target > 0 else 100.0
+            
+            c1, c2 = st.columns([1, 4])
+            c1.markdown(f"**{row['emp_name']}**")
+            with c2:
+                st.progress(p_progress / 100.0)
+                st.caption(f"เป้าหมาย: {p_target:,.2f} | ทำได้: {p_actual:,.2f} ({p_progress:.2f}%)")
+    else:
+        st.info("ยังไม่มีการตั้งเป้าหมายรายบุคคล")
 
 # --- 📊 Marketing Actual ---
 elif choice == "📊 Marketing Actual":
@@ -474,7 +539,7 @@ elif choice == "📊 Marketing Actual":
     
     tab1, tab2, tab3, tab4 = st.tabs(["📈 สรุปผลงาน (Performance)", "📝 บันทึก Leads/Registers", "⚙️ ตั้งค่าเป้าหมาย/ช่องทาง", "🏆 เป้าหมายเดือน"])
     
-    # 1. Monthly Goals Tab (Derived SSOT)
+    # 1. Monthly Goals Tab (Derived SSOT & Relative Targets)
     with tab4:
         st.subheader("🏆 ตั้งเป้าหมายรวมประจำเดือน")
         
@@ -482,24 +547,34 @@ elif choice == "📊 Marketing Actual":
         df_sum_h = run_query("SELECT SUM(chan_forecast_amount) as h_sum FROM marketing_config WHERE month_year = :my", {"my": current_month_year})
         derived_high = float(df_sum_h['h_sum'][0]) if not df_sum_h.empty and df_sum_h['h_sum'][0] is not None else 0.0
         
-        # Fetch Mid/Low
+        # Fetch Existing Settings
         existing_m_goal = run_query("SELECT * FROM monthly_goals WHERE month_year = :my", {"my": current_month_year})
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("🔥 High Target (Sum of Channels)", f"{derived_high:,.2f}")
-            st.caption("💡 มาจากผลรวมเป้าหมายทุกช่องทาง")
+            st.metric("🔥 High Target (100%)", f"{derived_high:,.2f}")
+            st.caption("💡 มาจากผลรวมเป้าหมายรายช่องทาง")
             
-        m_val = col2.number_input("Mid Target", value=float(existing_m_goal['mid_target'][0]) if not existing_m_goal.empty else 750000.0)
-        l_val = col3.number_input("Low Target", value=float(existing_m_goal['low_target'][0]) if not existing_m_goal.empty else 500000.0)
+        # Relative Target Inputs
+        cur_mid_pct = float(existing_m_goal['mid_pct'][0]) if not existing_m_goal.empty and 'mid_pct' in existing_m_goal.columns else 75.0
+        cur_low_pct = float(existing_m_goal['low_pct'][0]) if not existing_m_goal.empty and 'low_pct' in existing_m_goal.columns else 50.0
         
-        if st.button("💾 บันทึกเป้าหมาย Mid / Low"):
+        m_pct = col2.number_input("Mid Target (%) ของ High", 0.0, 100.0, value=cur_mid_pct)
+        l_pct = col3.number_input("Low Target (%) ของ High", 0.0, 100.0, value=cur_low_pct)
+        
+        m_val = derived_high * (m_pct / 100.0)
+        l_val = derived_high * (l_pct / 100.0)
+        
+        col2.write(f"💰 เป็นเงิน: **{m_val:,.2f}**")
+        col3.write(f"💰 เป็นเงิน: **{l_val:,.2f}**")
+        
+        if st.button("💾 บันทึกเป้าหมาย (Relative Settings)"):
             run_query("""
-                INSERT INTO monthly_goals (month_year, high_target, mid_target, low_target)
-                VALUES (:my, :h, :m, :l)
-                ON CONFLICT (month_year) DO UPDATE SET high_target=:h, mid_target=:m, low_target=:l
-            """, {"my": current_month_year, "h": derived_high, "m": m_val, "l": l_val})
-            st.success("บันทึกเป้าหมายสำเร็จ!")
+                INSERT INTO monthly_goals (month_year, high_target, mid_target, low_target, mid_pct, low_pct)
+                VALUES (:my, :h, :m, :l, :mp, :lp)
+                ON CONFLICT (month_year) DO UPDATE SET high_target=:h, mid_target=:m, low_target=:l, mid_pct=:mp, low_pct=:lp
+            """, {"my": current_month_year, "h": derived_high, "m": m_val, "l": l_val, "mp": m_pct, "lp": l_pct})
+            st.success("บันทึกเป้าหมายสัมพัทธ์สำเร็จ!")
 
             st.write("---")
             st.write("### 📸 ตั้งเป้าหมายอัตโนมัติด้วยรูปภาพ (AI Image Upload)")
@@ -673,19 +748,30 @@ elif choice == "📊 Marketing Actual":
             # Join actual sales (Category)
             cat_summary = cat_summary.merge(df_act_cat, on='cat_id', how='left').fillna(0)
             
+            # Fetch Mid/Low pct
+            df_m_pct = run_query("SELECT mid_pct, low_pct FROM monthly_goals WHERE month_year = :my", {"my": sel_month_perf})
+            m_pct_val = float(df_m_pct['mid_pct'][0]) if not df_m_pct.empty else 75.0
+            l_pct_val = float(df_m_pct['low_pct'][0]) if not df_m_pct.empty else 50.0
+
             # Recalculate based on Sum
             cat_summary['Forecast'] = cat_summary['chan_forecast_amount']
             cat_summary['Forecast %'] = (cat_summary['Forecast'] / total_high_target * 100).round(1) if total_high_target > 0 else 0
             cat_summary['DIFF'] = cat_summary['actual_amount'] - cat_summary['Forecast']
-            cat_summary['Percentage'] = (cat_summary['actual_amount'] / cat_summary['Forecast'].replace(0, 1) * 100).round(2)
+            cat_summary['% High'] = (cat_summary['actual_amount'] / cat_summary['Forecast'].replace(0, 1) * 100).round(2)
+            
+            # Mid/Low values for category
+            cat_summary['Mid_Val'] = cat_summary['Forecast'] * (m_pct_val / 100.0)
+            cat_summary['Low_Val'] = cat_summary['Forecast'] * (l_pct_val / 100.0)
+            cat_summary['% Mid'] = (cat_summary['actual_amount'] / cat_summary['Mid_Val'].replace(0, 1) * 100).round(2)
+            cat_summary['% Low'] = (cat_summary['actual_amount'] / cat_summary['Low_Val'].replace(0, 1) * 100).round(2)
             
             # Display Groups like the image
             for grp in ["Cooking Course", "Service"]:
                 st.markdown(f"### <div style='background-color: #8b0000; color: white; padding: 5px; text-align: center; border-radius: 5px;'>{grp}</div>", unsafe_allow_html=True)
                 df_grp = cat_summary[cat_summary['group_name'] == grp].copy()
                 if not df_grp.empty:
-                    df_disp = df_grp[['cat_name', 'Forecast %', 'Forecast', 'actual_amount', 'Percentage', 'DIFF']]
-                    df_disp.columns = ['Type', 'Forecast %', 'Forecast', 'Actual', 'Percentage', 'DIFF']
+                    df_disp = df_grp[['cat_name', 'Forecast %', 'Forecast', 'actual_amount', '% Low', '% Mid', '% High', 'DIFF']]
+                    df_disp.columns = ['Type', 'Forecast %', 'Forecast', 'Actual', '% Low', '% Mid', '% High', 'DIFF']
                     
                     # Totals
                     t_pct = df_disp['Forecast %'].sum()
@@ -694,7 +780,8 @@ elif choice == "📊 Marketing Actual":
                     t_diff = df_disp['DIFF'].sum()
                     
                     st.dataframe(df_disp.style.format({
-                        'Forecast %': '{:.1f}%', 'Forecast': '{:,.2f}', 'Actual': '{:,.2f}', 'Percentage': '{:.2f}', 'DIFF': '{:,.2f}'
+                        'Forecast %': '{:.1f}%', 'Forecast': '{:,.2f}', 'Actual': '{:,.2f}', 
+                        '% Low': '{:.1f}%', '% Mid': '{:.1f}%', '% High': '{:.1f}%', 'DIFF': '{:,.2f}'
                     }), use_container_width=True, hide_index=True)
                     
                     st.markdown(f"**Total {grp}:** Forecast {t_fore:,.2f} | Actual {t_act:,.2f} | DIFF {t_diff:,.2f}")
@@ -715,8 +802,15 @@ elif choice == "📊 Marketing Actual":
             detail['Forecast %'] = (detail['chan_forecast_amount'] / total_high_target * 100).round(1) if total_high_target > 0 else 0
             detail['DIFT'] = detail['actual_amount'] - detail['chan_forecast_amount']
             
-            detail_disp = detail[['cat_name', 'team_name', 'channel', 'Forecast %', 'chan_forecast_amount', 'lead_forecast', 'leads', 'register_target', 'regs', 'actual_amount', 'DIFT']]
-            detail_disp.columns = ['Type', 'Team', 'ช่องทาง', '%', 'Target Sales', 'Lead Forecast', 'Actual Lead', 'Reg Target', 'Actual Reg', 'Actual Sale', 'DIFT']
+            # Multi-tier progress for detail
+            detail['m_val'] = detail['chan_forecast_amount'] * (m_pct_val / 100.0)
+            detail['l_val'] = detail['chan_forecast_amount'] * (l_pct_val / 100.0)
+            detail['% Low'] = (detail['actual_amount'] / detail['l_val'].replace(0, 1) * 100).round(2)
+            detail['% Mid'] = (detail['actual_amount'] / detail['m_val'].replace(0, 1) * 100).round(2)
+            detail['% High'] = (detail['actual_amount'] / detail['chan_forecast_amount'].replace(0, 1) * 100).round(2)
+
+            detail_disp = detail[['cat_name', 'team_name', 'channel', 'Forecast %', 'chan_forecast_amount', 'actual_amount', '% Low', '% Mid', '% High', 'DIFT']]
+            detail_disp.columns = ['Type', 'Team', 'ช่องทาง', '%', 'Target Sales', 'Actual Sale', '% Low', '% Mid', '% High', 'DIFT']
             
             def color_dift(val):
                 color = '#ffcdd2' if val < 0 else '#c8e6c9'
