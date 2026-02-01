@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import datetime as dt
 from sqlalchemy import create_engine, text
+import google.generativeai as genai
 
 # --- 1. Database Configuration (PostgreSQL) ---
 @st.cache_resource
@@ -402,6 +403,10 @@ with st.sidebar:
     st.subheader("💸 Refund & Approval")
     st.button("💸 ขอรีฟันเงิน", on_click=set_menu, args=("💸 ขอรีฟันเงิน",), use_container_width=True)
     st.button("✅ อนุมัติรีฟัน", on_click=set_menu, args=("✅ อนุมัติรีฟัน",), use_container_width=True)
+    
+    st.markdown("---")
+    st.subheader("🤖 AI Assistant")
+    st.button("🤖 ถาม AI", on_click=set_menu, args=("🤖 ถาม AI",), use_container_width=True)
     
     st.markdown("---")
     st.button("⚙️ ตั้งค่าระบบ", on_click=set_menu, args=("⚙️ ตั้งค่าระบบ",), use_container_width=True)
@@ -2347,3 +2352,149 @@ elif choice == "✅ อนุมัติรีฟัน":
         })
         st.dataframe(df_history, hide_index=True, use_container_width=True,
                      column_config={"refund_amount": st.column_config.NumberColumn(format="฿%,.0f")})
+
+
+# --- 🤖 ถาม AI ---
+elif choice == "🤖 ถาม AI":
+    st.header("🤖 AI Assistant")
+    st.caption("ถาม AI เกี่ยวกับข้อมูลลูกค้า ยอดขาย และอื่นๆ ด้วยภาษาธรรมชาติ")
+    
+    # Initialize Gemini
+    @st.cache_resource
+    def init_gemini():
+        genai.configure(api_key=st.secrets["gemini"]["api_key"])
+        return genai.GenerativeModel('gemini-2.0-flash')
+    
+    model = init_gemini()
+    
+    # Database schema for AI context
+    db_schema = """
+    ตาราง customers: customer_id, full_name, nickname, phone, line_id, facebook, instagram, address_detail, province, district, sub_district, zipcode, gender, marital_status, has_children, birth_date, cust_note, assigned_sales_id
+    ตาราง bills: bill_id, customer_id, seller_id, total_amount, discount, final_amount, payment_method, sale_date, note
+    ตาราง bill_items: item_id, bill_id, product_id, product_name, qty, unit_price, subtotal
+    ตาราง employees: emp_id, emp_name, emp_nickname, department, role
+    ตาราง contact_logs: log_id, customer_id, contact_type, contact_date, notes, emp_id, follow_up_date
+    ตาราง customer_feedback: feedback_id, customer_id, rating, comment, created_at
+    ตาราง customer_tags: tag_id, customer_id, tag_name
+    """
+    
+    system_prompt = f"""คุณเป็น AI Assistant สำหรับระบบ CRM ของ V-School
+    คุณสามารถตอบคำถามเกี่ยวกับข้อมูลในฐานข้อมูลได้
+    
+    โครงสร้างฐานข้อมูล:
+    {db_schema}
+    
+    เมื่อผู้ใช้ถามคำถาม:
+    1. ถ้าต้องดึงข้อมูลจากฐานข้อมูล ให้สร้าง SQL query ที่เหมาะสม (PostgreSQL)
+    2. ส่งคืน SQL query ในรูปแบบ ```sql ... ``` เพื่อให้ระบบ execute ได้
+    3. ถ้าไม่ต้องใช้ SQL ให้ตอบคำถามโดยตรง
+    4. ใช้ภาษาไทยเสมอ
+    
+    ตัวอย่าง:
+    - "ลูกค้าใหม่ในเดือนนี้" → สร้าง SQL query ที่ดึงจาก bills ที่ sale_date >= ต้นเดือน
+    - "ยอดขายรวมสัปดาห์นี้" → สร้าง SQL query ที่ SUM(final_amount) จาก bills
+    
+    วันที่ปัจจุบัน: {datetime.now().strftime('%Y-%m-%d')}
+    """
+    
+    # Initialize chat history
+    if "ai_messages" not in st.session_state:
+        st.session_state.ai_messages = []
+    
+    # Display chat messages
+    for msg in st.session_state.ai_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if "data" in msg and msg["data"] is not None:
+                st.dataframe(msg["data"], hide_index=True, use_container_width=True)
+    
+    # Example questions
+    st.markdown("### 💡 ตัวอย่างคำถาม")
+    examples = [
+        "ขอรายชื่อลูกค้าใหม่ในช่วง 1 เดือน",
+        "ยอดขายรวมสัปดาห์นี้เท่าไหร่",
+        "Top 5 ลูกค้าที่ซื้อมากที่สุด",
+        "พนักงานขายคนไหนทำยอดได้มากที่สุด",
+        "ลูกค้าที่มี feedback rating ต่ำกว่า 3",
+        "ลูกค้าที่มี tag VIP"
+    ]
+    
+    cols = st.columns(3)
+    for i, ex in enumerate(examples):
+        if cols[i % 3].button(f"💬 {ex}", key=f"ex_{i}", use_container_width=True):
+            st.session_state.ai_input = ex
+            st.rerun()
+    
+    st.divider()
+    
+    # Chat input
+    if "ai_input" in st.session_state:
+        prompt = st.session_state.ai_input
+        del st.session_state.ai_input
+    else:
+        prompt = st.chat_input("พิมพ์คำถามที่นี่... เช่น 'ลูกค้าใหม่เดือนนี้มีกี่คน'")
+    
+    if prompt:
+        # Add user message
+        st.session_state.ai_messages.append({"role": "user", "content": prompt})
+        
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        
+        with st.chat_message("assistant"):
+            with st.spinner("🤔 กำลังคิด..."):
+                try:
+                    # Get AI response
+                    chat = model.start_chat(history=[])
+                    response = chat.send_message(f"{system_prompt}\n\nคำถาม: {prompt}")
+                    ai_response = response.text
+                    
+                    # Check if response contains SQL
+                    result_data = None
+                    display_response = ai_response
+                    
+                    if "```sql" in ai_response.lower():
+                        # Extract SQL query
+                        import re
+                        sql_match = re.search(r'```sql\s*(.*?)\s*```', ai_response, re.DOTALL | re.IGNORECASE)
+                        if sql_match:
+                            sql_query = sql_match.group(1).strip()
+                            st.code(sql_query, language="sql")
+                            
+                            try:
+                                # Execute SQL
+                                result_data = run_query(sql_query)
+                                if result_data.empty:
+                                    st.info("📭 ไม่พบข้อมูลที่ตรงกับเงื่อนไข")
+                                else:
+                                    st.success(f"✅ พบข้อมูล {len(result_data)} รายการ")
+                                    st.dataframe(result_data, hide_index=True, use_container_width=True)
+                                
+                                # Remove SQL block from display
+                                display_response = re.sub(r'```sql\s*.*?\s*```', '', ai_response, flags=re.DOTALL | re.IGNORECASE).strip()
+                                if display_response:
+                                    st.markdown(display_response)
+                                    
+                            except Exception as sql_err:
+                                st.error(f"❌ SQL Error: {sql_err}")
+                                st.markdown(ai_response)
+                    else:
+                        st.markdown(ai_response)
+                    
+                    # Save to history
+                    st.session_state.ai_messages.append({
+                        "role": "assistant", 
+                        "content": display_response,
+                        "data": result_data
+                    })
+                    
+                except Exception as e:
+                    st.error(f"❌ เกิดข้อผิดพลาด: {e}")
+        
+        st.rerun()
+    
+    # Clear chat button
+    if st.session_state.ai_messages:
+        if st.button("🗑️ ล้างประวัติแชท", use_container_width=True):
+            st.session_state.ai_messages = []
+            st.rerun()
