@@ -592,63 +592,7 @@ elif choice == "🎯 Goal Tracker":
                 run_query("DELETE FROM marketing_config WHERE month_year = :my AND cat_id = :cid", {"my": current_my, "cid": cid})
                 st.rerun()
 
-            if 'pending_goals' in st.session_state and not st.session_state.pending_goals.empty:
-                st.write("#### 🛡️ ตรวจสอบข้อมูลก่อนบันทึก (Review & Edit)")
-                edited_df = st.data_editor(st.session_state.pending_goals, num_rows="dynamic", use_container_width=True)
-                
-                ec1, ec2 = st.columns(2)
-                if ec1.button("✅ ยืนยันและบันทึกข้อมูลเข้าสู่ระบบ", use_container_width=True, type="primary"):
-                    # Batch Update Team Weights first (Default 70/30 or max from edited)
-                    run_query("""
-                        INSERT INTO category_team_weights (month_year, cat_id, mkt_weight, sale_weight)
-                        VALUES (:my, :cid, 70, 30)
-                        ON CONFLICT (month_year, cat_id) DO NOTHING
-                    """, {"my": sel_month_cfg, "cid": cid})
-                    
-                    # Batch Update Channels
-                    for _, row in edited_df.iterrows():
-                        run_query("""
-                            INSERT INTO marketing_config (month_year, cat_id, team_name, team_weight, channel, chan_forecast_amount, lead_forecast, register_target)
-                            VALUES (:my, :cid, :t, :tw, :ch, :amt, :lf, :rt)
-                            ON CONFLICT (month_year, cat_id, team_name, channel) 
-                            DO UPDATE SET chan_forecast_amount=:amt, lead_forecast=:lf, register_target=:rt
-                        """, {
-                            "my": sel_month_cfg, "cid": cid, "t": row['Team'], "tw": 70 if row['Team']=="MKT" else 30,
-                            "ch": row['Channel'], "amt": row['Amount'], "lf": row['Leads'], "rt": row['Reg']
-                        })
-                    st.success("บันทึกเป้าหมายจากรูปภาพเรียบร้อยแล้ว!")
-                    del st.session_state.pending_goals
-                    st.rerun()
-                
-                if ec2.button("🗑️ ยกเลิก", use_container_width=True):
-                    del st.session_state.pending_goals
-                    st.rerun()
 
-            st.write("---")
-            st.write("### 🛠️ วิธีการตั้งค่าแบบแมนนวล (หากไม่มีรูปภาพ)")
-            with st.expander("➕ เพิ่มช่องทางรายบุคคล", expanded=False):
-                ec1, ec2, ec3 = st.columns(3)
-                sel_team = ec1.selectbox("เลือกทีม", ["MKT", "Sale"], key="man_team")
-                # Show weight label for context
-                current_tw = st.session_state.mkt_w if sel_team == "MKT" else st.session_state.sale_w
-                st.caption(f"💡 ทีม {sel_team} มีสัดส่วน {current_tw}% ของหมวดหมู่")
-                
-                chan_name = ec2.selectbox("ช่องทาง", channels + ["Naeki", "อัพเซลล์ลูกค้าเก่า", "Live", "CSQ", "อื่นๆ"], key="man_chan")
-                chan_amt = ec3.number_input("เป้าหมายยอดขาย (บาท)", 0.0, 10000000.0, 10000.0, key="man_amt")
-                
-                ec4, ec5 = st.columns(2)
-                l_f = ec4.number_input("เป้าหมาย Leads", 0, 5000, 10, key="man_leads")
-                r_t = ec5.number_input("เป้าหมาย Register", 0, 5000, 5, key="man_reg")
-                
-                if st.button("➕ เพิ่มลงรายการ (Manual)", key="btn_man_add"):
-                    run_query("""
-                        INSERT INTO marketing_config (month_year, cat_id, team_name, team_weight, channel, chan_forecast_amount, lead_forecast, register_target)
-                        VALUES (:my, :cid, :t, :tw, :ch, :cfa, :lf, :rt)
-                        ON CONFLICT (month_year, cat_id, team_name, channel) 
-                        DO UPDATE SET team_weight=:tw, chan_forecast_amount=:cfa, lead_forecast=:lf, register_target=:rt
-                    """, {"my": sel_month_cfg, "cid": cid, "t": sel_team, "tw": current_tw, "ch": chan_name, "cfa": chan_amt, "lf": l_f, "rt": r_t})
-                    st.success(f"เพิ่ม {chan_name} เรียบร้อย!")
-                    st.rerun()
 
 
 
@@ -846,7 +790,7 @@ elif choice == "💰 บันทึกการขาย":
             st.info("🛒 ตระกร้าว่างเปล่า: กรุณาเพิ่มสินค้าเพื่อเริ่มบันทึกการขาย")
 
 # --- 👥 จัดการลูกค้า ---
-if choice == "👥 จัดการลูกค้า":
+elif choice == "👥 จัดการลูกค้า":
     st.header("👥 จัดการฐานข้อมูลลูกค้า")
     
     df_all_c = run_query("SELECT * FROM customers")
