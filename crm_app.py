@@ -985,7 +985,18 @@ elif choice == "👥 จัดการลูกค้า":
                 ename = ec1.text_input("ชื่อจริง", value=cust['full_name'])
                 enick = ec2.text_input("ชื่อเล่น", value=cust['nickname'] or "")
                 
-                ebirth = ec1.date_input("วันเกิด", value=datetime.strptime(cust['birth_date'], "%Y-%m-%d") if pd.notnull(cust['birth_date']) else None)
+                # Prepare Date Value
+                b_val = None
+                if pd.notnull(cust['birth_date']):
+                    if isinstance(cust['birth_date'], str):
+                        try:
+                            b_val = datetime.strptime(cust['birth_date'], "%Y-%m-%d")
+                        except ValueError:
+                            b_val = None
+                    else:
+                        b_val = cust['birth_date']
+
+                ebirth = ec1.date_input("วันเกิด", value=b_val)
                 egender = ec2.selectbox("เพศ", ["ชาย", "หญิง", "อื่นๆ"], index=["ชาย", "หญิง", "อื่นๆ"].index(cust['gender']) if cust['gender'] in ["ชาย", "หญิง", "อื่นๆ"] else 0)
                 
                 ephone = ec1.text_input("เบอร์โทร", value=cust['phone'] or "")
