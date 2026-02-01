@@ -2459,10 +2459,19 @@ elif choice == "🤖 ถาม AI":
             st.markdown(prompt)
         
         with st.chat_message("assistant"):
-            with st.spinner("🤔 กำลังคิด..."):
+            with st.spinner("🤔 EVA กำลังคิด..."):
                 try:
-                    # Get AI response
-                    chat = model.start_chat(history=[])
+                    # Build chat history for context (last 10 messages)
+                    history = []
+                    recent_messages = st.session_state.ai_messages[-10:]  # Keep last 10 for context
+                    for msg in recent_messages[:-1]:  # Exclude current message
+                        if msg["role"] == "user":
+                            history.append({"role": "user", "parts": [msg["content"]]})
+                        else:
+                            history.append({"role": "model", "parts": [msg["content"]]})
+                    
+                    # Get AI response with history
+                    chat = model.start_chat(history=history)
                     response = chat.send_message(f"{system_prompt}\n\nคำถาม: {prompt}")
                     ai_response = response.text
                     
